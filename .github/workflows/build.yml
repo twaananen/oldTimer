@@ -1,4 +1,4 @@
-name: Build oldTimer
+name: Build oldtimer
 on:
   schedule:
     - cron: '40 17 * * 2,5' # 17:40 utc tues thurs
@@ -37,7 +37,7 @@ jobs:
       fail-fast: false
       matrix:
         image_flavor: [main, nvidia] # , asus, asus-nvidia, framework, surface, surface-nvidia
-        base_name: [oldTimer] # bazzite, bazzite-deck
+        base_name: [oldtimer] # bazzite, bazzite-deck
         base_image_name: [kinoite, silverblue]
         major_version: [38] # , 39
         include:
@@ -130,7 +130,7 @@ jobs:
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
             org.opencontainers.image.version=${{ steps.labels.outputs.VERSION }}
             org.opencontainers.image.description=A modification of Bazzite.
-            io.artifacthub.package.readme-url=https://github.com/twaananen/oldTimer/blob/main/README.md
+            io.artifacthub.package.readme-url=https://github.com/twaananen/oldtimer/blob/main/README.md
             io.artifacthub.package.logo-url=https://raw.githubusercontent.com/ublue-os/bazzite/main/repo_content/logo.png
 
       # Build image using Buildah action
