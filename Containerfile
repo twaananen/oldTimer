@@ -17,7 +17,7 @@ COPY system_files/shared /
 RUN chmod +x /tmp/github-release-install.sh && \
     rpm-ostree install \
     snapraid && \
-    /tmp/github-release-install.sh trapexit/mergerfs fc38.x86_64
+    /tmp/github-release-install.sh trapexit/mergerfs fc$FEDORA_MAJOR_VERSION.x86_64
 
 # Run the build script, then clean up temp files and finalize container build.
 RUN chmod +x /tmp/image-info.sh && \
