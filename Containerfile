@@ -16,7 +16,7 @@ COPY system_files/shared /
 # Install snapraid, mergerfs
 RUN chmod +x /tmp/github-release-install.sh && \
     rpm-ostree install \
-    snapraid moby-engine docker-compose && \
+    snapraid git-lfs && \
     /tmp/github-release-install.sh trapexit/mergerfs fc$FEDORA_MAJOR_VERSION.x86_64
 
 # Run the build script, then clean up temp files and finalize container build.
