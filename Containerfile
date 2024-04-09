@@ -24,7 +24,7 @@ RUN chmod +x /tmp/github-release-install.sh && \
     rpm-ostree install \
     snapraid git-lfs \
     docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin \
-    podman-compose podman-plugins podman-tui && \
+    podman-compose podman-plugins podman-tui \
     code devpod && \
     /tmp/github-release-install.sh trapexit/mergerfs fc$FEDORA_MAJOR_VERSION.x86_64
 
