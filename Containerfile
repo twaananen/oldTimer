@@ -25,7 +25,7 @@ RUN chmod +x /tmp/github-release-install.sh && \
     snapraid git-lfs \
     docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin \
     podman-compose podman-tui \
-    code devpod && \
+    code && \
     /tmp/github-release-install.sh trapexit/mergerfs fc41.x86_64
 
 # Set up services
