@@ -26,7 +26,7 @@ RUN chmod +x /tmp/github-release-install.sh && \
     docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin \
     podman-compose podman-tui \
     code && \
-    /tmp/github-release-install.sh trapexit/mergerfs fc41.x86_64
+    /tmp/github-release-install.sh trapexit/mergerfs fc43.x86_64
 
 # Set up services
 RUN systemctl enable docker.socket && \
