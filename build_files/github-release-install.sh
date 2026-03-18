@@ -42,7 +42,7 @@ RPM_URLS=$(curl --retry 3 --retry-delay 0 --retry-all-errors -sL ${API} \
     '.assets | sort_by(.created_at) | reverse | .[] | select(.name|test($arch_filter)) | select (.name|test("rpm$")) | .browser_download_url')
 for URL in ${RPM_URLS}; do
   # WARNING: in case of multiple matches, this only installs the first matched release
-  echo "execute: rpm-ostree install \"${URL}\""
-  rpm-ostree install "${URL}"
+  echo "execute: dnf5 install -y \"${URL}\""
+  dnf5 install -y "${URL}"
   break
 done
