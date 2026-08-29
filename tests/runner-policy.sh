@@ -51,6 +51,9 @@ for marker in \
   grep -qF "counter_before[$marker]" "$acceptance"
 done
 grep -qF 'counter_value()' "$acceptance"
+grep -qF 'rule_is_reject()' "$acceptance"
+grep -qF 'if ip -6 route get "$ipv6_target"' "$acceptance"
+grep -qF 'SKIP: no host IPv6 route; live reject and container IPv4-only boundary proved' "$acceptance"
 if grep -qF 'counter_total()' "$acceptance"; then
   echo "host acceptance must prove every documented reject independently" >&2
   exit 1

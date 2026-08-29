@@ -78,7 +78,9 @@ their cgroup ancestry and the following contract, then removes only those names:
   ports, host devices, and host UID 1000 are absent; `CapEff` is zero and
   `NoNewPrivs` is one.
 - Every documented private, host-local, and IPv6 probe increments its own
-  `aeons_ci` reject counter; an aggregate increase is not sufficient.
+  `aeons_ci` reject counter; an aggregate increase is not sufficient. If the
+  host has no IPv6 route, the probe instead requires the exact live IPv6 reject
+  rule and records that its counter was unexercised; containers remain IPv4-only.
 
 List the exact-owned local state without mutating it:
 

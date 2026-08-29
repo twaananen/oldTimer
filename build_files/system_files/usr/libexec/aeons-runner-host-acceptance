@@ -22,6 +22,13 @@ counter_value() {
         jq --arg marker "$marker" \
             '[.nftables[].rule | select(.comment == $marker) | .expr[]? | select(has("counter")) | .counter.packets] | if length == 1 then .[0] else error("missing or duplicate counter") end'
 }
+rule_is_reject() {
+    local marker=$1
+    nft --json list chain inet aeons_ci output |
+        jq --exit-status --arg marker "$marker" \
+            '[.nftables[].rule | select(.comment == $marker)] | length == 1 and any(.[0].expr[]?; has("counter")) and any(.[0].expr[]?; has("reject"))' \
+            >/dev/null
+}
 markers=(
     aeons-ci-probe-host-local
     aeons-ci-probe-lan-gateway
@@ -32,8 +39,17 @@ markers=(
 )
 declare -A counter_before
 for marker in "${markers[@]}"; do
+    if ! rule_is_reject "$marker"; then
+        echo "missing or malformed live aeons_ci reject: $marker" >&2
+        exit 1
+    fi
     counter_before[$marker]=$(counter_value "$marker")
 done
+ipv6_target=2606:4700:4700::1111
+ipv6_routed=false
+if ip -6 route get "$ipv6_target" >/dev/null 2>&1; then
+    ipv6_routed=true
+fi
 
 systemd-run \
     --quiet \
@@ -52,6 +68,10 @@ systemd-run \
 
 for marker in "${markers[@]}"; do
     counter_after=$(counter_value "$marker")
+    if [[ $marker = aeons-ci-probe-ipv6 && $ipv6_routed = false ]]; then
+        echo "SKIP: no host IPv6 route; live reject and container IPv4-only boundary proved"
+        continue
+    fi
     if (( counter_after <= counter_before[$marker] )); then
         echo "probe did not reach its aeons_ci nftables reject: $marker" >&2
         exit 1
