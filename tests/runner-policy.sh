@@ -48,8 +48,8 @@ for marker in \
   aeons-ci-probe-link-local \
   aeons-ci-probe-ipv6; do
   grep -qF "comment \"$marker\"" "$firewall"
-  grep -qF "counter_before[$marker]" "$acceptance"
 done
+grep -qF 'counter_before[$marker]=$(counter_value "$marker")' "$acceptance"
 grep -qF 'counter_value()' "$acceptance"
 grep -qF 'rule_is_reject()' "$acceptance"
 grep -qF 'if ip -6 route get "$ipv6_target"' "$acceptance"
