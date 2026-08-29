@@ -74,6 +74,11 @@ grep -qF 'expected_cgroup=/aeons-ci.slice/aeons-runner-host-acceptance-worker.se
   "$acceptance_worker"
 grep -qF 'before_ids=' "$repo_root/README.md"
 grep -qF 'grep -qxF "$run_id" <<<"$before_ids"' "$repo_root/README.md"
+grep -qF 'assert_runner_cleanup()' "$repo_root/README.md"
+if (( $(grep -c '^assert_runner_cleanup$' "$repo_root/README.md") < 7 )); then
+  echo "every canary and real-workflow stage must prove exact cleanup" >&2
+  exit 1
+fi
 grep -qF ': "${AEONS_RUNNERD_IMAGE_TAG:?}"' \
   "$system_root/usr/libexec/aeons-runner-image-ensure"
 if grep -qF 'podman image exists' "$system_root/usr/libexec/aeons-runner-image-ensure"; then

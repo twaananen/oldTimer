@@ -125,6 +125,24 @@ start_canary() {
   dispatch_run local-runner-acceptance.yml \
     -f runner="$runner" -f mode="$mode"
 }
+assert_runner_cleanup() {
+  local containers server_count
+  for attempt in {1..30}; do
+    containers=$(sudo -u aeons-ci env HOME=/var/lib/aeons-ci \
+      XDG_RUNTIME_DIR=/run/aeons-ci podman ps --all \
+      --filter label=io.aeons.runnerd.owner=oldtimer --format '{{.Names}}')
+    server_count=$(gh api "repos/$repo/actions/runners" --jq \
+      '[.runners[] | select(.name | startswith("aeons-oldtimer-"))] | length')
+    if [[ -z $containers && $server_count = 0 ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  printf 'local containers still present:\n%s\n' "$containers" >&2
+  gh api "repos/$repo/actions/runners" --jq \
+    '.runners[] | select(.name | startswith("aeons-oldtimer-")) | .name' >&2
+  return 1
+}
 ```
 
 Prove success, intentional failure, timeout, and cancellation. The non-success
@@ -134,20 +152,24 @@ one requested:
 ```bash
 run_id=$(start_canary success)
 gh run watch "$run_id" --repo "$repo" --exit-status
+assert_runner_cleanup
 
 run_id=$(start_canary failure)
 ! gh run watch "$run_id" --repo "$repo" --exit-status
 test "$(gh run view "$run_id" --repo "$repo" --json conclusion --jq .conclusion)" = failure
+assert_runner_cleanup
 
 run_id=$(start_canary timeout)
 ! gh run watch "$run_id" --repo "$repo" --exit-status
 test "$(gh run view "$run_id" --repo "$repo" --json conclusion --jq .conclusion)" = failure
+assert_runner_cleanup
 
 run_id=$(start_canary hold)
 until [[ $(gh run view "$run_id" --repo "$repo" --json status --jq .status) = in_progress ]]; do sleep 2; done
 gh run cancel "$run_id" --repo "$repo"
 gh run watch "$run_id" --repo "$repo" || true
 test "$(gh run view "$run_id" --repo "$repo" --json conclusion --jq .conclusion)" = cancelled
+assert_runner_cleanup
 ```
 
 The restart canary is the only planned exception to “never restart with an
@@ -167,12 +189,10 @@ test "$(sudo -u aeons-ci env HOME=/var/lib/aeons-ci XDG_RUNTIME_DIR=/run/aeons-c
   podman ps --filter label=io.aeons.runnerd.owner=oldtimer --format '{{.Names}}' | wc -l)" = 1
 sudo systemctl restart aeons-runnerd.service
 gh run watch "$run_id" --repo "$repo" || true
-test -z "$(sudo -u aeons-ci env HOME=/var/lib/aeons-ci XDG_RUNTIME_DIR=/run/aeons-ci \
-  podman ps --all --filter label=io.aeons.runnerd.owner=oldtimer --format '{{.Names}}')"
-test "$(gh api "repos/$repo/actions/runners" --jq \
-  '[.runners[] | select(.name | startswith("aeons-oldtimer-"))] | length')" = 0
+assert_runner_cleanup
 run_id=$(start_canary success)
 gh run watch "$run_id" --repo "$repo" --exit-status
+assert_runner_cleanup
 ```
 
 Finally dispatch the actual qualified workflows and require both to pass:
@@ -181,7 +201,9 @@ Finally dispatch the actual qualified workflows and require both to pass:
 diagnostics_id=$(dispatch_run gd-diagnostics.yml -f runner="$runner")
 client_id=$(dispatch_run client-gdunit.yml -f runner="$runner")
 gh run watch "$diagnostics_id" --repo "$repo" --exit-status
+assert_runner_cleanup
 gh run watch "$client_id" --repo "$repo" --exit-status
+assert_runner_cleanup
 ```
 
 Only after every step above passes, enable the units persistently and set the
