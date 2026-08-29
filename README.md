@@ -77,7 +77,8 @@ their cgroup ancestry and the following contract, then removes only those names:
 - `/etc` is read-only; host homes, service data, engine sockets, published
   ports, host devices, and host UID 1000 are absent; `CapEff` is zero and
   `NoNewPrivs` is one.
-- The `aeons_ci` nft counter increases during its private-address probes.
+- Every documented private, host-local, and IPv6 probe increments its own
+  `aeons_ci` reject counter; an aggregate increase is not sufficient.
 
 List the exact-owned local state without mutating it:
 

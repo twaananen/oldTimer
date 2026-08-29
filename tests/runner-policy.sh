@@ -40,6 +40,21 @@ for network in 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12
   grep -qF "$network" "$firewall"
 done
 grep -qF 'meta skuid "aeons-ci" meta nfproto ipv6 counter reject' "$firewall"
+for marker in \
+  aeons-ci-probe-host-local \
+  aeons-ci-probe-lan-gateway \
+  aeons-ci-probe-docker-bridge \
+  aeons-ci-probe-carrier-grade \
+  aeons-ci-probe-link-local \
+  aeons-ci-probe-ipv6; do
+  grep -qF "comment \"$marker\"" "$firewall"
+  grep -qF "counter_before[$marker]" "$acceptance"
+done
+grep -qF 'counter_value()' "$acceptance"
+if grep -qF 'counter_total()' "$acceptance"; then
+  echo "host acceptance must prove every documented reject independently" >&2
+  exit 1
+fi
 
 grep -qF 'LoadCredentialEncrypted=github-app-key' "$runner_unit"
 grep -qF 'BindReadOnlyPaths=/usr/lib/aeons-ci/resolv.conf:/etc/resolv.conf' "$runner_unit"

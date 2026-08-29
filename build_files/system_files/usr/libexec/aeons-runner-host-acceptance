@@ -16,11 +16,24 @@ for service in aeons-ci-firewall.service aeons-runner-image.service; do
         exit 1
     fi
 done
-counter_total() {
+counter_value() {
+    local marker=$1
     nft --json list chain inet aeons_ci output |
-        jq '[.nftables[].rule.expr[]? | select(has("counter")) | .counter.packets] | add // 0'
+        jq --arg marker "$marker" \
+            '[.nftables[].rule | select(.comment == $marker) | .expr[]? | select(has("counter")) | .counter.packets] | if length == 1 then .[0] else error("missing or duplicate counter") end'
 }
-counter_before=$(counter_total)
+markers=(
+    aeons-ci-probe-host-local
+    aeons-ci-probe-lan-gateway
+    aeons-ci-probe-docker-bridge
+    aeons-ci-probe-carrier-grade
+    aeons-ci-probe-link-local
+    aeons-ci-probe-ipv6
+)
+declare -A counter_before
+for marker in "${markers[@]}"; do
+    counter_before[$marker]=$(counter_value "$marker")
+done
 
 systemd-run \
     --quiet \
@@ -37,9 +50,11 @@ systemd-run \
     --setenv=XDG_RUNTIME_DIR=/run/aeons-ci \
     /usr/libexec/aeons-runner-host-acceptance-worker
 
-counter_after=$(counter_total)
-if (( counter_after <= counter_before )); then
-    echo "private-address probes did not reach the aeons_ci nftables rejects" >&2
-    exit 1
-fi
+for marker in "${markers[@]}"; do
+    counter_after=$(counter_value "$marker")
+    if (( counter_after <= counter_before[$marker] )); then
+        echo "probe did not reach its aeons_ci nftables reject: $marker" >&2
+        exit 1
+    fi
+done
 echo "PASS: four-runner host isolation, slice ancestry, egress, and exact cleanup"
