@@ -1,0 +1,15 @@
+[Unit]
+Description=Aeons CI private-network egress denial
+Requires=systemd-sysusers.service
+After=systemd-sysusers.service
+Before=aeons-runner-image.service aeons-runnerd.service
+
+[Service]
+Type=oneshot
+ExecStartPre=-/usr/sbin/nft delete table inet aeons_ci
+ExecStart=/usr/sbin/nft --file /usr/lib/aeons-ci/network.nft
+ExecStop=-/usr/sbin/nft delete table inet aeons_ci
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

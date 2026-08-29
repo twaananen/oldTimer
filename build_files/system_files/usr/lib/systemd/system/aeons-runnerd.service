@@ -1,0 +1,38 @@
+[Unit]
+Description=Aeons ephemeral GitHub Actions runner pool
+Requires=aeons-ci-firewall.service aeons-runner-image.service
+After=aeons-ci-firewall.service aeons-runner-image.service network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=aeons-ci
+Group=aeons-ci
+Slice=aeons-ci.slice
+Delegate=yes
+KillMode=control-group
+StateDirectory=aeons-ci
+StateDirectoryMode=0700
+RuntimeDirectory=aeons-ci
+RuntimeDirectoryMode=0700
+Environment=HOME=/var/lib/aeons-ci
+Environment=XDG_RUNTIME_DIR=/run/aeons-ci
+EnvironmentFile=-/etc/aeons-runnerd.env
+BindReadOnlyPaths=/usr/lib/aeons-ci/resolv.conf:/etc/resolv.conf
+LoadCredentialEncrypted=github-app-key
+ExecStart=/usr/libexec/aeons-runnerd
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=75s
+UMask=0077
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+LockPersonality=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target

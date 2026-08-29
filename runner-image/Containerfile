@@ -1,0 +1,32 @@
+FROM ghcr.io/actions/actions-runner:2.337.0@sha256:e5496277be5d09bc968b3d64911b74e219ac4a3f2edce956a3ecf9271bea1ef4
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git-lfs \
+        libasound2t64 \
+        libfontconfig1 \
+        libgl1 \
+        libx11-6 \
+        libxcursor1 \
+        libxext6 \
+        libxfixes3 \
+        libxi6 \
+        libxinerama1 \
+        libxrandr2 \
+        libxrender1 \
+        libxxf86vm1 \
+        python3 \
+        ruby \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -o runner -g docker -m 0755 /opt/actions-runner/runtime \
+    && cp -a /home/runner/. /opt/actions-runner/runtime/ \
+    && rm -rf /home/runner/*
+
+COPY entrypoint.sh /opt/actions-runner/entrypoint.sh
+RUN chmod 0755 /opt/actions-runner/entrypoint.sh
+
+USER runner
+WORKDIR /runner
+ENTRYPOINT ["/opt/actions-runner/entrypoint.sh"]
