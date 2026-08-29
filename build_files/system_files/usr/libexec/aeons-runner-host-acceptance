@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( EUID != 0 )); then
+    echo "run as root: sudo /usr/libexec/aeons-runner-host-acceptance" >&2
+    exit 1
+fi
+if systemctl is-active --quiet aeons-runnerd.service; then
+    echo "refusing to probe while aeons-runnerd is active" >&2
+    echo "stop it only when no Actions job is active, then rerun this probe" >&2
+    exit 1
+fi
+for service in aeons-ci-firewall.service aeons-runner-image.service; do
+    if ! systemctl is-active --quiet "$service"; then
+        echo "$service must be active" >&2
+        exit 1
+    fi
+done
+if [[ $(systemctl show aeons-ci.slice --property=MemoryMax --value) != 42949672960 ]] ||
+    [[ $(systemctl show aeons-ci.slice --property=CPUQuotaPerSecUSec --value) != 8s ]]; then
+    echo "aeons-ci.slice does not enforce the expected 8 CPU / 40 GiB ceiling" >&2
+    exit 1
+fi
+
+source /usr/lib/aeons-ci/runner.env
+: "${AEONS_RUNNERD_IMAGE_TAG:?}"
+
+as_ci=(
+    runuser --user aeons-ci --
+    env HOME=/var/lib/aeons-ci XDG_RUNTIME_DIR=/run/aeons-ci
+)
+owner_filter=label=io.aeons.runnerd.owner=oldtimer
+if [[ -n $("${as_ci[@]}" podman ps --all --filter "$owner_filter" --format '{{.Names}}') ]]; then
+    echo "refusing to touch existing runner-owned containers" >&2
+    exit 1
+fi
+
+image_id=$("${as_ci[@]}" podman image inspect \
+    --format '{{.Id}}' -- "$AEONS_RUNNERD_IMAGE_TAG")
+common_args=(
+    --label io.aeons.runnerd.owner=oldtimer
+    --pull=never
+    --userns=auto:size=8192
+    --cgroups=split
+    --cpus=2
+    --memory=8g
+    --memory-swap=8g
+    --pids-limit=2048
+    --cap-drop=all
+    --security-opt=no-new-privileges
+    --network=pasta:--ipv4-only,--no-map-gw
+    --read-only
+    --tmpfs=/runner:rw,nosuid,nodev,size=4g,mode=0777
+    --tmpfs=/tmp:rw,nosuid,nodev,size=1g
+    --stop-timeout=30
+    --dns=1.1.1.1
+    --dns=9.9.9.9
+    --user=runner
+    --workdir=/runner
+    --env HOME=/runner
+    --entrypoint=/bin/bash
+)
+names=()
+cleanup() {
+    local name
+    for name in "${names[@]}"; do
+        "${as_ci[@]}" podman rm --force --time=2 --ignore "$name" >/dev/null
+    done
+}
+trap cleanup EXIT
+
+counter_total() {
+    nft --json list chain inet aeons_ci output |
+        jq '[.nftables[].rule.expr[]? | select(has("counter")) | .counter.packets] | add // 0'
+}
+counter_before=$(counter_total)
+
+for suffix in 000000000001 000000000002 000000000003 000000000004; do
+    name="aeons-oldtimer-$suffix"
+    names+=("$name")
+    "${as_ci[@]}" podman run --detach --name "$name" \
+        --label "io.aeons.runnerd.name=$name" \
+        "${common_args[@]}" "$image_id" -lc 'sleep 300' >/dev/null
+done
+
+running=$("${as_ci[@]}" podman ps --filter "$owner_filter" --format '{{.Names}}' |
+    grep -Ec '^aeons-oldtimer-[0-9a-f]{12}$')
+if [[ $running != 4 ]]; then
+    echo "expected four simultaneous probes, found $running" >&2
+    exit 1
+fi
+for name in "${names[@]}"; do
+    if [[ -n $("${as_ci[@]}" podman port "$name") ]]; then
+        echo "probe unexpectedly publishes a host port: $name" >&2
+        exit 1
+    fi
+done
+
+probe='set -euo pipefail
+test "$(id -u)" = 1001
+grep -Eq "^CapEff:[[:space:]]+0+$" /proc/self/status
+grep -Eq "^NoNewPrivs:[[:space:]]+1$" /proc/self/status
+grep -qx 8589934592 /sys/fs/cgroup/memory.max
+grep -qx 2048 /sys/fs/cgroup/pids.max
+grep -qx "200000 100000" /sys/fs/cgroup/cpu.max
+awk '\''$2 == "/" { split($4, options, ","); for (i in options) if (options[i] == "ro") found=1 } END { exit found ? 0 : 1 }'\'' /proc/mounts
+for path in /var/home/tommi /var/mnt/storage /var/mnt/Photos /var/mnt/Viihde /var/run/docker.sock /run/podman/podman.sock /dev/dri /dev/kvm; do
+    test ! -e "$path"
+done
+if awk '\''$2 <= 1000 && 1000 < $2 + $3 { found=1 } END { exit found ? 0 : 1 }'\'' /proc/self/uid_map; then
+    echo "host UID 1000 is mapped" >&2
+    exit 1
+fi
+getent ahostsv4 github.com >/dev/null
+curl --fail --silent --show-error --max-time 10 https://api.github.com/zen >/dev/null
+python3 -m http.server 18080 --bind 127.0.0.1 >/tmp/loopback.log 2>&1 &
+server=$!
+trap '\''kill "$server" 2>/dev/null || true'\'' EXIT
+for attempt in 1 2 3 4 5; do
+    curl --fail --silent http://127.0.0.1:18080/ >/dev/null && break
+    sleep 0.2
+done
+kill "$server"
+trap - EXIT
+for address in 192.168.0.1 192.168.0.11 172.17.0.1 100.64.0.1 169.254.169.254; do
+    if curl --noproxy "*" --silent --connect-timeout 1 --max-time 2 "http://$address/" >/dev/null 2>&1; then
+        echo "private address was reachable: $address" >&2
+        exit 1
+    fi
+done
+if curl -6 --noproxy "*" --silent --connect-timeout 1 --max-time 2 "https://[2606:4700:4700::1111]/" >/dev/null 2>&1; then
+    echo "IPv6 was reachable" >&2
+    exit 1
+fi'
+"${as_ci[@]}" podman exec "${names[0]}" /bin/bash -lc "$probe"
+
+counter_after=$(counter_total)
+if (( counter_after <= counter_before )); then
+    echo "private-address probes did not reach the aeons_ci nftables rejects" >&2
+    exit 1
+fi
+
+cleanup
+trap - EXIT
+if [[ -n $("${as_ci[@]}" podman ps --all --filter "$owner_filter" --format '{{.Names}}') ]]; then
+    echo "probe cleanup left runner-owned containers behind" >&2
+    exit 1
+fi
+echo "PASS: four-runner host isolation, limits, egress, and exact cleanup"

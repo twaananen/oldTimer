@@ -9,6 +9,7 @@ runner_slice="$unit_root/aeons-ci.slice"
 image_unit="$unit_root/aeons-runner-image.service"
 firewall="$system_root/usr/lib/aeons-ci/network.nft"
 runner_env="$system_root/usr/lib/aeons-ci/runner.env"
+acceptance="$system_root/usr/libexec/aeons-runner-host-acceptance"
 
 for setting in \
   'User=aeons-ci' \
@@ -48,6 +49,18 @@ grep -qF 'nameserver 1.1.1.1' "$system_root/usr/lib/aeons-ci/resolv.conf"
 grep -qF 'nameserver 9.9.9.9' "$system_root/usr/lib/aeons-ci/resolv.conf"
 
 bash -n "$system_root/usr/libexec/aeons-runner-image-ensure"
+bash -n "$acceptance"
+grep -qF 'systemctl is-active --quiet aeons-runnerd.service' "$acceptance"
+for flag in \
+  '--userns=auto:size=8192' \
+  '--network=pasta:--ipv4-only,--no-map-gw' \
+  '--read-only' \
+  '--cap-drop=all' \
+  '--security-opt=no-new-privileges'; do
+  grep -qF -- "$flag" "$acceptance"
+done
+grep -qF 'for suffix in 000000000001 000000000002 000000000003 000000000004' \
+  "$acceptance"
 grep -qF ': "${AEONS_RUNNERD_IMAGE_TAG:?}"' \
   "$system_root/usr/libexec/aeons-runner-image-ensure"
 if grep -qF 'podman image exists' "$system_root/usr/libexec/aeons-runner-image-ensure"; then
