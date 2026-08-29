@@ -64,9 +64,10 @@ Runner jobs use a read-only root and bounded tmpfs, so their checkout, tools,
 and diagnostics disappear at exit without growing persistent container storage.
 
 The host acceptance program refuses to run while `aeons-runnerd` is active or
-when any owner-labelled container already exists. It creates exactly four
-fixed-name probes with the production isolation and resource flags, checks the
-following contract, then removes only those names:
+when any owner-labelled container already exists. It starts a transient
+`aeons-ci` system service in `aeons-ci.slice` with delegation, creates exactly
+four fixed-name probes with the production isolation and resource flags, checks
+their cgroup ancestry and the following contract, then removes only those names:
 
 - Four concurrent containers enforce 2 CPUs, 8 GiB, 2,048 PIDs, and the
   aggregate slice remains below 8 CPUs/40 GiB.
@@ -92,25 +93,37 @@ Run these from an Aeons checkout after both PRs are merged. Keep
 `AEONS_PR_LINUX_RUNNER` unset throughout qualification. The manual-only canary
 uses no repository secret and accepts the label explicitly.
 
-Define a helper that dispatches one mode and returns its newest matching run ID:
+Define helpers that snapshot existing workflow run IDs before dispatch, then
+return only a newly created run. This prevents a delayed dispatch from selecting
+historical green evidence:
 
 ```bash
+set -euo pipefail
 repo=FullPotatoStudios/Aeons
 runner=aeons-oldtimer-linux-x64
-start_canary() {
-  local mode=$1 run_id=
-  gh workflow run local-runner-acceptance.yml --repo "$repo" --ref main \
-    -f runner="$runner" -f mode="$mode"
+dispatch_run() {
+  local workflow=$1 before_ids run_id
+  shift
+  before_ids=$(gh run list --repo "$repo" --workflow "$workflow" \
+    --event workflow_dispatch --limit 100 --json databaseId --jq '.[].databaseId')
+  gh workflow run "$workflow" --repo "$repo" --ref main "$@" >/dev/null
   for attempt in {1..15}; do
-    run_id=$(gh run list --repo "$repo" --workflow local-runner-acceptance.yml \
-      --event workflow_dispatch --limit 20 --json databaseId,displayTitle \
-      --jq ".[] | select(.displayTitle == \"Local runner acceptance ($mode)\") | .databaseId" |
-      head -n1)
-    [[ -n $run_id ]] && break
+    while IFS= read -r run_id; do
+      [[ -n $run_id ]] || continue
+      if ! grep -qxF "$run_id" <<<"$before_ids"; then
+        printf '%s\n' "$run_id"
+        return 0
+      fi
+    done < <(gh run list --repo "$repo" --workflow "$workflow" \
+      --event workflow_dispatch --limit 100 --json databaseId --jq '.[].databaseId')
     sleep 2
   done
-  [[ -n $run_id ]] || return 1
-  printf '%s\n' "$run_id"
+  return 1
+}
+start_canary() {
+  local mode=$1
+  dispatch_run local-runner-acceptance.yml \
+    -f runner="$runner" -f mode="$mode"
 }
 ```
 
@@ -165,12 +178,8 @@ gh run watch "$run_id" --repo "$repo" --exit-status
 Finally dispatch the actual qualified workflows and require both to pass:
 
 ```bash
-gh workflow run gd-diagnostics.yml --repo "$repo" --ref main -f runner="$runner"
-gh workflow run client-gdunit.yml --repo "$repo" --ref main -f runner="$runner"
-diagnostics_id=$(gh run list --repo "$repo" --workflow gd-diagnostics.yml \
-  --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
-client_id=$(gh run list --repo "$repo" --workflow client-gdunit.yml \
-  --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
+diagnostics_id=$(dispatch_run gd-diagnostics.yml -f runner="$runner")
+client_id=$(dispatch_run client-gdunit.yml -f runner="$runner")
 gh run watch "$diagnostics_id" --repo "$repo" --exit-status
 gh run watch "$client_id" --repo "$repo" --exit-status
 ```

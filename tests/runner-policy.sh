@@ -10,6 +10,7 @@ image_unit="$unit_root/aeons-runner-image.service"
 firewall="$system_root/usr/lib/aeons-ci/network.nft"
 runner_env="$system_root/usr/lib/aeons-ci/runner.env"
 acceptance="$system_root/usr/libexec/aeons-runner-host-acceptance"
+acceptance_worker="$system_root/usr/libexec/aeons-runner-host-acceptance-worker"
 
 for setting in \
   'User=aeons-ci' \
@@ -50,17 +51,29 @@ grep -qF 'nameserver 9.9.9.9' "$system_root/usr/lib/aeons-ci/resolv.conf"
 
 bash -n "$system_root/usr/libexec/aeons-runner-image-ensure"
 bash -n "$acceptance"
+bash -n "$acceptance_worker"
 grep -qF 'systemctl is-active --quiet aeons-runnerd.service' "$acceptance"
+for property in \
+  '--property=User=aeons-ci' \
+  '--property=Group=aeons-ci' \
+  '--property=Slice=aeons-ci.slice' \
+  '--property=Delegate=yes'; do
+  grep -qF -- "$property" "$acceptance"
+done
 for flag in \
   '--userns=auto:size=8192' \
   '--network=pasta:--ipv4-only,--no-map-gw' \
   '--read-only' \
   '--cap-drop=all' \
   '--security-opt=no-new-privileges'; do
-  grep -qF -- "$flag" "$acceptance"
+  grep -qF -- "$flag" "$acceptance_worker"
 done
 grep -qF 'for suffix in 000000000001 000000000002 000000000003 000000000004' \
-  "$acceptance"
+  "$acceptance_worker"
+grep -qF 'expected_cgroup=/aeons-ci.slice/aeons-runner-host-acceptance-worker.service' \
+  "$acceptance_worker"
+grep -qF 'before_ids=' "$repo_root/README.md"
+grep -qF 'grep -qxF "$run_id" <<<"$before_ids"' "$repo_root/README.md"
 grep -qF ': "${AEONS_RUNNERD_IMAGE_TAG:?}"' \
   "$system_root/usr/libexec/aeons-runner-image-ensure"
 if grep -qF 'podman image exists' "$system_root/usr/libexec/aeons-runner-image-ensure"; then
