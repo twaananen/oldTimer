@@ -53,11 +53,12 @@ sudo systemctl status aeons-ci-firewall.service aeons-runner-image.service aeons
 sudo journalctl -u aeons-runnerd.service -f
 ```
 
-The first image build derives a local runner image from a digest-pinned official
+The image service builds the embedded recipe from a digest-pinned official
 runner and installs Ruby, Python, Git LFS, and the libraries used by headless
-Godot. Runner jobs use a read-only root and bounded tmpfs, so their checkout,
-tools, and diagnostics disappear at exit without growing persistent container
-storage.
+Godot. It reevaluates that recipe on each service start, using Podman's layer
+cache while ensuring a base-image update cannot leave a stale tag in service.
+Runner jobs use a read-only root and bounded tmpfs, so their checkout, tools,
+and diagnostics disappear at exit without growing persistent container storage.
 
 Before enabling any PR route, prove all of the following from containers run as
 `aeons-ci` with the same flags emitted by `runnerd`:

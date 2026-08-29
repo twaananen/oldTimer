@@ -29,8 +29,12 @@ type Scaler struct {
 	jit        JITSource
 	runtime    RunnerRuntime
 	newName    func() string
-	runners    map[string]JITRunner
-	exits      map[string]<-chan error
+	runners    map[string]activeRunner
+}
+
+type activeRunner struct {
+	serverID int64
+	exit     <-chan error
 }
 
 func NewScaler(maxRunners int, jit JITSource, runtime RunnerRuntime, newName func() string) *Scaler {
@@ -39,24 +43,21 @@ func NewScaler(maxRunners int, jit JITSource, runtime RunnerRuntime, newName fun
 		jit:        jit,
 		runtime:    runtime,
 		newName:    newName,
-		runners:    make(map[string]JITRunner),
-		exits:      make(map[string]<-chan error),
+		runners:    make(map[string]activeRunner),
 	}
 }
 
 func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, desired int) (int, error) {
-	for name, exit := range s.exits {
+	for name, runner := range s.runners {
 		select {
-		case <-exit:
-			runner := s.runners[name]
+		case <-runner.exit:
 			if err := s.runtime.Remove(ctx, name); err != nil {
 				return len(s.runners), fmt.Errorf("remove exited runner %q: %w", name, err)
 			}
-			if err := s.jit.Remove(ctx, runner.ServerID); err != nil {
+			if err := s.jit.Remove(ctx, runner.serverID); err != nil {
 				return len(s.runners), fmt.Errorf("remove exited server runner %q: %w", name, err)
 			}
 			delete(s.runners, name)
-			delete(s.exits, name)
 		default:
 		}
 	}
@@ -69,6 +70,7 @@ func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, desired int) (int
 			return len(s.runners), fmt.Errorf("generate JIT config: %w", err)
 		}
 		exit, err := s.runtime.Start(ctx, Runner{Name: name, JITConfig: jitRunner.Config})
+		jitRunner.Config = ""
 		if err != nil {
 			launchErr := fmt.Errorf("start runner %q: %w", name, err)
 			if removeErr := s.jit.Remove(ctx, jitRunner.ServerID); removeErr != nil {
@@ -76,8 +78,7 @@ func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, desired int) (int
 			}
 			return len(s.runners), launchErr
 		}
-		s.runners[name] = jitRunner
-		s.exits[name] = exit
+		s.runners[name] = activeRunner{serverID: jitRunner.ServerID, exit: exit}
 	}
 	return len(s.runners), nil
 }
@@ -93,7 +94,6 @@ func (s *Scaler) HandleJobCompleted(ctx context.Context, job *scaleset.JobComple
 		return fmt.Errorf("remove completed runner %q: %w", job.RunnerName, err)
 	}
 	delete(s.runners, job.RunnerName)
-	delete(s.exits, job.RunnerName)
 	return nil
 }
 
@@ -114,11 +114,10 @@ func (s *Scaler) Shutdown(ctx context.Context) error {
 		if err := s.runtime.Remove(ctx, name); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove local runner %q: %w", name, err))
 		}
-		if err := s.jit.Remove(ctx, runner.ServerID); err != nil {
+		if err := s.jit.Remove(ctx, runner.serverID); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove server runner %q: %w", name, err))
 		}
 		delete(s.runners, name)
-		delete(s.exits, name)
 	}
 	return cleanupErr
 }

@@ -9,6 +9,7 @@ func TestLoadConfigReadsOnlyGitHubAppCredential(t *testing.T) {
 	env := map[string]string{
 		"AEONS_RUNNERD_APP_CLIENT_ID":       "Iv23.client",
 		"AEONS_RUNNERD_APP_INSTALLATION_ID": "12345",
+		"AEONS_RUNNERD_IMAGE_TAG":           "localhost/aeons-actions-runner:oldtimer",
 		"CREDENTIALS_DIRECTORY":             "/run/credentials/aeons-runnerd.service",
 	}
 	getenv := func(name string) string { return env[name] }
@@ -27,7 +28,7 @@ func TestLoadConfigReadsOnlyGitHubAppCredential(t *testing.T) {
 		RegistrationURL: "https://github.com/FullPotatoStudios/Aeons",
 		ScaleSetName:    "aeons-oldtimer-linux-x64",
 		OwnerLabel:      "oldtimer",
-		ImageTag:        "localhost/aeons-actions-runner:2.337.0-1",
+		ImageTag:        "localhost/aeons-actions-runner:oldtimer",
 		MaxRunners:      4,
 		AppClientID:     "Iv23.client",
 		InstallationID:  12345,

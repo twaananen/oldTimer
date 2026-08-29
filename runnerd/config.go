@@ -23,9 +23,12 @@ func LoadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 		RegistrationURL: "https://github.com/FullPotatoStudios/Aeons",
 		ScaleSetName:    "aeons-oldtimer-linux-x64",
 		OwnerLabel:      "oldtimer",
-		ImageTag:        "localhost/aeons-actions-runner:2.337.0-1",
+		ImageTag:        getenv("AEONS_RUNNERD_IMAGE_TAG"),
 		MaxRunners:      4,
 		AppClientID:     getenv("AEONS_RUNNERD_APP_CLIENT_ID"),
+	}
+	if config.ImageTag == "" {
+		return Config{}, errors.New("AEONS_RUNNERD_IMAGE_TAG is required")
 	}
 	if config.AppClientID == "" {
 		return Config{}, errors.New("AEONS_RUNNERD_APP_CLIENT_ID is required")

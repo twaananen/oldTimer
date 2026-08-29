@@ -64,8 +64,11 @@ func (OSExecutor) Start(ctx context.Context, command Command) (<-chan error, err
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	startErr := cmd.Start()
+	clear(cmd.Env)
+	cmd.Env = nil
+	if startErr != nil {
+		return nil, startErr
 	}
 	exit := make(chan error, 1)
 	go func() {

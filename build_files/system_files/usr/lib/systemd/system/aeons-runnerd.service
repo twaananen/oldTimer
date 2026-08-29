@@ -18,6 +18,7 @@ RuntimeDirectory=aeons-ci
 RuntimeDirectoryMode=0700
 Environment=HOME=/var/lib/aeons-ci
 Environment=XDG_RUNTIME_DIR=/run/aeons-ci
+EnvironmentFile=/usr/lib/aeons-ci/runner.env
 EnvironmentFile=-/etc/aeons-runnerd.env
 BindReadOnlyPaths=/usr/lib/aeons-ci/resolv.conf:/etc/resolv.conf
 LoadCredentialEncrypted=github-app-key
