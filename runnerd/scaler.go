@@ -35,6 +35,7 @@ type Scaler struct {
 type activeRunner struct {
 	serverID int64
 	exit     <-chan error
+	started  bool
 }
 
 func NewScaler(maxRunners int, jit JITSource, runtime RunnerRuntime, newName func() string) *Scaler {
@@ -50,7 +51,12 @@ func NewScaler(maxRunners int, jit JITSource, runtime RunnerRuntime, newName fun
 func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, desired int) (int, error) {
 	for name, runner := range s.runners {
 		select {
-		case <-runner.exit:
+		case exitErr := <-runner.exit:
+			if exitErr == nil && runner.started {
+				runner.exit = nil
+				s.runners[name] = runner
+				continue
+			}
 			if err := s.runtime.Remove(ctx, name); err != nil {
 				return len(s.runners), fmt.Errorf("remove exited runner %q: %w", name, err)
 			}
@@ -97,7 +103,16 @@ func (s *Scaler) HandleJobCompleted(ctx context.Context, job *scaleset.JobComple
 	return nil
 }
 
-func (s *Scaler) HandleJobStarted(_ context.Context, _ *scaleset.JobStarted) error {
+func (s *Scaler) HandleJobStarted(_ context.Context, job *scaleset.JobStarted) error {
+	if job == nil {
+		return nil
+	}
+	runner, exists := s.runners[job.RunnerName]
+	if !exists {
+		return nil
+	}
+	runner.started = true
+	s.runners[job.RunnerName] = runner
 	return nil
 }
 

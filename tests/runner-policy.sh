@@ -79,6 +79,16 @@ if (( $(grep -c '^assert_runner_cleanup$' "$repo_root/README.md") < 7 )); then
   echo "every canary and real-workflow stage must prove exact cleanup" >&2
   exit 1
 fi
+timeout_boundary_check='test "$(gh run view "$run_id" --repo "$repo" --json jobs --jq '\''[.jobs[].steps[] | select(.name == "Verify qualified toolchain and container boundary") | .conclusion] | unique | .[]'\'')" = success'
+grep -qF "$timeout_boundary_check" "$repo_root/README.md"
+
+diagnostics_dispatch_line=$(grep -nF 'diagnostics_id=$(dispatch_run gd-diagnostics.yml -f runner="$runner")' "$repo_root/README.md" | cut -d: -f1)
+client_dispatch_line=$(grep -nF 'client_id=$(dispatch_run client-gdunit.yml -f runner="$runner")' "$repo_root/README.md" | cut -d: -f1)
+cleanup_between=$(sed -n "$((diagnostics_dispatch_line + 1)),$((client_dispatch_line - 1))p" "$repo_root/README.md" | grep -c '^assert_runner_cleanup$')
+if (( diagnostics_dispatch_line >= client_dispatch_line || cleanup_between != 1 )); then
+  echo "qualified workflows must run and clean up sequentially" >&2
+  exit 1
+fi
 grep -qF ': "${AEONS_RUNNERD_IMAGE_TAG:?}"' \
   "$system_root/usr/libexec/aeons-runner-image-ensure"
 if grep -qF 'podman image exists' "$system_root/usr/libexec/aeons-runner-image-ensure"; then

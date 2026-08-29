@@ -162,6 +162,7 @@ assert_runner_cleanup
 run_id=$(start_canary timeout)
 ! gh run watch "$run_id" --repo "$repo" --exit-status
 test "$(gh run view "$run_id" --repo "$repo" --json conclusion --jq .conclusion)" = failure
+test "$(gh run view "$run_id" --repo "$repo" --json jobs --jq '[.jobs[].steps[] | select(.name == "Verify qualified toolchain and container boundary") | .conclusion] | unique | .[]')" = success
 assert_runner_cleanup
 
 run_id=$(start_canary hold)
@@ -199,9 +200,9 @@ Finally dispatch the actual qualified workflows and require both to pass:
 
 ```bash
 diagnostics_id=$(dispatch_run gd-diagnostics.yml -f runner="$runner")
-client_id=$(dispatch_run client-gdunit.yml -f runner="$runner")
 gh run watch "$diagnostics_id" --repo "$repo" --exit-status
 assert_runner_cleanup
+client_id=$(dispatch_run client-gdunit.yml -f runner="$runner")
 gh run watch "$client_id" --repo "$repo" --exit-status
 assert_runner_cleanup
 ```

@@ -99,6 +99,47 @@ func TestScalerReplacesRunnerWhenAttachedProcessExits(t *testing.T) {
 	}
 }
 
+func TestScalerRetainsCleanlyExitedJobUntilCompletionArrives(t *testing.T) {
+	jit := &fakeJITSource{}
+	runtime := &fakeRuntime{}
+	names := []string{"aeons-oldtimer-000000000001", "aeons-oldtimer-000000000002"}
+	scaler := NewScaler(1, jit, runtime, func() string {
+		name := names[0]
+		names = names[1:]
+		return name
+	})
+	ctx := context.Background()
+
+	if _, err := scaler.HandleDesiredRunnerCount(ctx, 1); err != nil {
+		t.Fatalf("start runner: %v", err)
+	}
+	if err := scaler.HandleJobStarted(ctx, &scaleset.JobStarted{RunnerName: "aeons-oldtimer-000000000001"}); err != nil {
+		t.Fatalf("start job: %v", err)
+	}
+	runtime.exits["aeons-oldtimer-000000000001"] <- nil
+	if _, err := scaler.HandleDesiredRunnerCount(ctx, 1); err != nil {
+		t.Fatalf("observe clean exit: %v", err)
+	}
+
+	if len(runtime.started) != 1 {
+		t.Fatalf("started %d runners before completion, want 1", len(runtime.started))
+	}
+	if len(runtime.removed) != 0 || len(jit.removed) != 0 {
+		t.Fatalf("cleanly exited runner was removed before completion: local=%v server=%v", runtime.removed, jit.removed)
+	}
+
+	completed := &scaleset.JobCompleted{RunnerName: "aeons-oldtimer-000000000001"}
+	if err := scaler.HandleJobCompleted(ctx, completed); err != nil {
+		t.Fatalf("complete runner: %v", err)
+	}
+	if _, err := scaler.HandleDesiredRunnerCount(ctx, 1); err != nil {
+		t.Fatalf("reuse completed slot: %v", err)
+	}
+	if got := runtime.started[len(runtime.started)-1].Name; got != "aeons-oldtimer-000000000002" {
+		t.Fatalf("replacement runner is %q", got)
+	}
+}
+
 func TestScalerAcceptsRepeatedAndOutOfOrderJobStartedEvents(t *testing.T) {
 	scaler := NewScaler(1, &fakeJITSource{}, &fakeRuntime{}, func() string {
 		return "aeons-oldtimer-000000000001"
