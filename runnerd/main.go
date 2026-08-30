@@ -37,14 +37,15 @@ func run(ctx context.Context) error {
 	}
 
 	pool := PodmanPool{
-		OwnerLabel: config.OwnerLabel,
-		CPUs:       "2",
-		Memory:     "8g",
-		PIDsLimit:  2048,
-		WorkSize:   "4g",
-		TmpfsSize:  "1g",
-		Lifecycle:  ctx,
-		RunTimeout: 45 * time.Minute,
+		OwnerLabel:   config.OwnerLabel,
+		CgroupParent: config.CgroupParent,
+		CPUs:         "2",
+		Memory:       "8g",
+		PIDsLimit:    2048,
+		WorkSize:     "4g",
+		TmpfsSize:    "1g",
+		Lifecycle:    ctx,
+		RunTimeout:   45 * time.Minute,
 	}
 	imageID, err := pool.ResolveImage(ctx, config.ImageTag)
 	if err != nil {

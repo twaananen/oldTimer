@@ -11,6 +11,7 @@ type Config struct {
 	RegistrationURL string
 	ScaleSetName    string
 	OwnerLabel      string
+	CgroupParent    string
 	ImageTag        string
 	MaxRunners      int
 	AppClientID     string
@@ -23,6 +24,7 @@ func LoadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 		RegistrationURL: "https://github.com/FullPotatoStudios/Aeons",
 		ScaleSetName:    "aeons-oldtimer-linux-x64",
 		OwnerLabel:      "oldtimer",
+		CgroupParent:    getenv("AEONS_CGROUP_PARENT"),
 		ImageTag:        getenv("AEONS_RUNNERD_IMAGE_TAG"),
 		MaxRunners:      4,
 		AppClientID:     getenv("AEONS_RUNNERD_APP_CLIENT_ID"),
@@ -32,6 +34,9 @@ func LoadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 	}
 	if config.AppClientID == "" {
 		return Config{}, errors.New("AEONS_RUNNERD_APP_CLIENT_ID is required")
+	}
+	if config.CgroupParent != requiredRunnerCgroupParent {
+		return Config{}, errors.New("AEONS_CGROUP_PARENT must name the delegated runner service")
 	}
 
 	installationID, err := strconv.ParseInt(getenv("AEONS_RUNNERD_APP_INSTALLATION_ID"), 10, 64)

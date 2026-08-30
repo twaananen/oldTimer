@@ -9,6 +9,7 @@ func TestLoadConfigReadsOnlyGitHubAppCredential(t *testing.T) {
 	env := map[string]string{
 		"AEONS_RUNNERD_APP_CLIENT_ID":       "Iv23.client",
 		"AEONS_RUNNERD_APP_INSTALLATION_ID": "12345",
+		"AEONS_CGROUP_PARENT":               runnerCgroupParent,
 		"AEONS_RUNNERD_IMAGE_TAG":           "localhost/aeons-actions-runner:oldtimer",
 		"CREDENTIALS_DIRECTORY":             "/run/credentials/aeons-runnerd.service",
 	}
@@ -28,6 +29,7 @@ func TestLoadConfigReadsOnlyGitHubAppCredential(t *testing.T) {
 		RegistrationURL: "https://github.com/FullPotatoStudios/Aeons",
 		ScaleSetName:    "aeons-oldtimer-linux-x64",
 		OwnerLabel:      "oldtimer",
+		CgroupParent:    runnerCgroupParent,
 		ImageTag:        "localhost/aeons-actions-runner:oldtimer",
 		MaxRunners:      4,
 		AppClientID:     "Iv23.client",
@@ -36,5 +38,20 @@ func TestLoadConfigReadsOnlyGitHubAppCredential(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("config %#v, want %#v", got, want)
+	}
+}
+
+func TestLoadConfigRejectsMissingCgroupParent(t *testing.T) {
+	env := map[string]string{
+		"AEONS_RUNNERD_APP_CLIENT_ID":       "Iv23.client",
+		"AEONS_RUNNERD_APP_INSTALLATION_ID": "12345",
+		"AEONS_RUNNERD_IMAGE_TAG":           "localhost/aeons-actions-runner:oldtimer",
+		"CREDENTIALS_DIRECTORY":             "/run/credentials/aeons-runnerd.service",
+	}
+	getenv := func(name string) string { return env[name] }
+	readFile := func(string) ([]byte, error) { return []byte("private-key\n"), nil }
+
+	if _, err := LoadConfig(getenv, readFile); err == nil {
+		t.Fatal("LoadConfig accepted a missing delegated cgroup parent")
 	}
 }

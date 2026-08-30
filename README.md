@@ -17,6 +17,10 @@ that range into an atomic image is insufficient because an existing `/etc` is
 preserved across deployments. The runner services also use their own Podman
 configuration with cgroupfs inside the delegated `aeons-ci.slice`, so they do
 not require a login session and do not alter any other user's Podman defaults.
+The service launcher moves the long-lived daemon once into a `supervisor`
+child. Podman then creates each limited runner as its sibling under the
+delegated service cgroup. This keeps the whole pool owned by systemd without
+letting Podman's `split` mode recursively move the daemon deeper on every job.
 
 ### Provision the GitHub App
 
@@ -77,6 +81,8 @@ their cgroup ancestry and the following contract, then removes only those names:
 
 - Four concurrent containers enforce 2 CPUs, 8 GiB, 2,048 PIDs, and the
   aggregate slice remains below 8 CPUs/40 GiB.
+- The worker remains in one stable `supervisor` cgroup while all four payloads
+  occupy distinct sibling cgroups; cleanup removes every payload cgroup.
 - Public DNS and HTTPS work; container-local loopback works.
 - Container probes prove `192.168.0.11`, `192.168.0.1`, Docker/k3d bridge
   ranges, `100.64.0.0/10`, link-local, host-local, and all IPv6 traffic are
