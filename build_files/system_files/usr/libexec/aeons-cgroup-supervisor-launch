@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( $# == 0 )); then
+    echo "usage: aeons-cgroup-supervisor-launch COMMAND [ARG ...]" >&2
+    exit 2
+fi
+
+unit_cgroup=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
+if [[ -z $unit_cgroup || $unit_cgroup != /* ]]; then
+    echo "could not resolve delegated unit cgroup: $unit_cgroup" >&2
+    exit 1
+fi
+unit_root="/sys/fs/cgroup$unit_cgroup"
+supervisor_cgroup="$unit_cgroup/supervisor"
+supervisor_root="/sys/fs/cgroup$supervisor_cgroup"
+
+mkdir -p "$supervisor_root"
+printf '%s\n' "$$" >"$supervisor_root/cgroup.procs"
+available=" $(<"$unit_root/cgroup.controllers") "
+for controller in cpu memory pids; do
+    if [[ $available != *" $controller "* ]]; then
+        echo "delegated cgroup is missing the $controller controller: $unit_cgroup" >&2
+        exit 1
+    fi
+done
+printf '+cpu +memory +pids\n' >"$unit_root/cgroup.subtree_control"
+
+actual_cgroup=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
+if [[ $actual_cgroup != "$supervisor_cgroup" ]]; then
+    echo "failed to enter runner supervisor cgroup: $actual_cgroup" >&2
+    exit 1
+fi
+export AEONS_CGROUP_PARENT="$unit_cgroup"
+exec "$@"

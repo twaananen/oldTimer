@@ -13,6 +13,7 @@ runner_env="$system_root/usr/lib/aeons-ci/runner.env"
 containers_conf="$system_root/usr/lib/aeons-ci/containers.conf"
 acceptance="$system_root/usr/libexec/aeons-runner-host-acceptance"
 acceptance_worker="$system_root/usr/libexec/aeons-runner-host-acceptance-worker"
+cgroup_launcher="$system_root/usr/libexec/aeons-cgroup-supervisor-launch"
 host_setup="$system_root/usr/libexec/aeons-ci-host-setup"
 host_isolation="$system_root/usr/lib/aeons-ci/host-isolation.sh"
 
@@ -66,6 +67,7 @@ if grep -qF 'counter_total()' "$acceptance"; then
 fi
 
 grep -qF 'LoadCredentialEncrypted=github-app-key' "$runner_unit"
+grep -qxF 'ExecStart=/usr/libexec/aeons-cgroup-supervisor-launch /usr/libexec/aeons-runnerd' "$runner_unit"
 grep -qxF 'Requires=aeons-ci-host-setup.service' "$system_root/usr/lib/systemd/system/aeons-ci-firewall.service"
 grep -qxF 'ExecStart=/usr/libexec/aeons-ci-host-setup' "$host_setup_unit"
 grep -qF 'BindReadOnlyPaths=/usr/lib/aeons-ci/resolv.conf:/etc/resolv.conf' "$runner_unit"
@@ -86,10 +88,12 @@ bash -n "$system_root/usr/libexec/aeons-runner-image-ensure"
 bash -n "$host_setup"
 bash -n "$acceptance"
 bash -n "$acceptance_worker"
+bash -n "$cgroup_launcher"
 bash -n "$host_isolation"
 grep -qF 'systemctl is-active --quiet aeons-runnerd.service' "$acceptance"
 grep -qF 'containers_conf=${AEONS_CONTAINERS_CONF:-/usr/lib/aeons-ci/containers.conf}' "$acceptance"
 grep -qF 'acceptance_worker=${AEONS_ACCEPTANCE_WORKER:-/usr/libexec/aeons-runner-host-acceptance-worker}' "$acceptance"
+grep -qF 'cgroup_launcher=${AEONS_CGROUP_LAUNCHER:-/usr/libexec/aeons-cgroup-supervisor-launch}' "$acceptance"
 if grep -qF -- '    --quiet' "$acceptance"; then
   echo "host acceptance must surface transient unit failures" >&2
   exit 1
@@ -111,9 +115,11 @@ for property in \
   '--setenv=CONTAINERS_CONF="$containers_conf"'; do
   grep -qF -- "$property" "$acceptance"
 done
-grep -qxF '    "$acceptance_worker"' "$acceptance"
+grep -qxF '    "$cgroup_launcher" "$acceptance_worker"' "$acceptance"
 for flag in \
   '--userns=auto:size=8192' \
+  '--cgroups=enabled' \
+  '--cgroup-parent="$AEONS_CGROUP_PARENT"' \
   '--network=pasta:--ipv4-only,--no-map-gw' \
   '--read-only' \
   '--cap-drop=all' \
@@ -126,6 +132,9 @@ grep -qF 'slice_cgroup=$(systemctl show --property=ControlGroup --value aeons-ci
   "$acceptance_worker"
 grep -qF 'expected_cgroup="$slice_cgroup/aeons-runner-host-acceptance-worker.service"' \
   "$acceptance_worker"
+grep -qF 'expected_supervisor="$expected_cgroup/supervisor"' "$acceptance_worker"
+grep -qF 'declare -A seen_container_cgroups=()' "$acceptance_worker"
+grep -qF 'leftover_payload_cgroups=("$unit_root"/libpod-*)' "$acceptance_worker"
 grep -qF 'aeons_uid_map_contains "$forbidden_uid" "/proc/$pid/uid_map"' \
   "$acceptance_worker"
 grep -qF 'private_probe_addresses=(' "$acceptance_worker"
@@ -225,6 +234,18 @@ fi
 uid_map_file="$subid_test_root/uid_map"
 printf '0 589824 8192\n' >"$uid_map_file"
 source "$host_isolation"
+payload_parent=/aeons.slice/aeons-ci.slice/aeons-runnerd.service
+payload_id=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+aeons_is_direct_runner_cgroup "$payload_parent" "$payload_parent/libpod-$payload_id"
+for invalid_cgroup in \
+  "$payload_parent/libpod-$payload_id/runtime" \
+  "$payload_parent/runtime/libpod-$payload_id" \
+  "$payload_parent/libpod-short"; do
+  if aeons_is_direct_runner_cgroup "$payload_parent" "$invalid_cgroup"; then
+    echo "runner cgroup predicate accepted an invalid topology: $invalid_cgroup" >&2
+    exit 1
+  fi
+done
 if aeons_uid_map_contains 1000 "$uid_map_file"; then
   echo "host UID predicate rejected a subordinate-only mapping" >&2
   exit 1

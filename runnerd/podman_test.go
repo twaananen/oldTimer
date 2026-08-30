@@ -10,6 +10,7 @@ import (
 )
 
 const pinnedRunnerImage = "ghcr.io/actions/actions-runner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+const runnerCgroupParent = "/aeons.slice/aeons-ci.slice/aeons-runnerd.service"
 
 func TestOSExecutorOutputKeepsDiagnosticsOutOfMachineReadableOutput(t *testing.T) {
 	output, err := (OSExecutor{}).Output(context.Background(), Command{
@@ -26,13 +27,14 @@ func TestOSExecutorOutputKeepsDiagnosticsOutOfMachineReadableOutput(t *testing.T
 
 func TestPodmanPlanIsHardenedAndBounded(t *testing.T) {
 	pool := PodmanPool{
-		Image:      pinnedRunnerImage,
-		OwnerLabel: "oldtimer",
-		CPUs:       "2",
-		Memory:     "8g",
-		PIDsLimit:  2048,
-		WorkSize:   "4g",
-		TmpfsSize:  "1g",
+		Image:        pinnedRunnerImage,
+		OwnerLabel:   "oldtimer",
+		CgroupParent: runnerCgroupParent,
+		CPUs:         "2",
+		Memory:       "8g",
+		PIDsLimit:    2048,
+		WorkSize:     "4g",
+		TmpfsSize:    "1g",
 	}
 
 	got, err := pool.Plan(Runner{
@@ -56,7 +58,8 @@ func TestPodmanPlanIsHardenedAndBounded(t *testing.T) {
 			"--label", "io.aeons.runnerd.name=aeons-oldtimer-0123456789ab",
 			"--pull=never",
 			"--userns=auto:size=8192",
-			"--cgroups=split",
+			"--cgroups=enabled",
+			"--cgroup-parent=" + runnerCgroupParent,
 			"--cpus=2",
 			"--memory=8g",
 			"--memory-swap=8g",
@@ -92,13 +95,14 @@ func TestPodmanPlanIsHardenedAndBounded(t *testing.T) {
 
 func TestPodmanPlanRejectsUnsafeInputs(t *testing.T) {
 	validPool := PodmanPool{
-		Image:      pinnedRunnerImage,
-		OwnerLabel: "oldtimer",
-		CPUs:       "2",
-		Memory:     "8g",
-		PIDsLimit:  2048,
-		WorkSize:   "4g",
-		TmpfsSize:  "1g",
+		Image:        pinnedRunnerImage,
+		OwnerLabel:   "oldtimer",
+		CgroupParent: runnerCgroupParent,
+		CPUs:         "2",
+		Memory:       "8g",
+		PIDsLimit:    2048,
+		WorkSize:     "4g",
+		TmpfsSize:    "1g",
 	}
 	validRunner := Runner{Name: "aeons-oldtimer-0123456789ab", JITConfig: "secret"}
 
@@ -122,6 +126,10 @@ func TestPodmanPlanRejectsUnsafeInputs(t *testing.T) {
 			pool:   validPool,
 			runner: Runner{Name: validRunner.Name},
 		},
+		"missing delegated cgroup parent": {
+			pool:   withCgroupParent(validPool, ""),
+			runner: validRunner,
+		},
 	}
 
 	for name, test := range tests {
@@ -140,6 +148,11 @@ func withImage(pool PodmanPool, image string) PodmanPool {
 
 func withOwner(pool PodmanPool, owner string) PodmanPool {
 	pool.OwnerLabel = owner
+	return pool
+}
+
+func withCgroupParent(pool PodmanPool, parent string) PodmanPool {
+	pool.CgroupParent = parent
 	return pool
 }
 
@@ -178,14 +191,15 @@ func TestPodmanStartAndRemoveExecuteOnlyThePlannedRunner(t *testing.T) {
 	exit <- exitErr
 	exec := &recordingExecutor{outputs: [][]byte{nil}, exit: exit}
 	pool := PodmanPool{
-		Image:      pinnedRunnerImage,
-		OwnerLabel: "oldtimer",
-		CPUs:       "2",
-		Memory:     "8g",
-		PIDsLimit:  2048,
-		WorkSize:   "4g",
-		TmpfsSize:  "1g",
-		Executor:   exec,
+		Image:        pinnedRunnerImage,
+		OwnerLabel:   "oldtimer",
+		CgroupParent: runnerCgroupParent,
+		CPUs:         "2",
+		Memory:       "8g",
+		PIDsLimit:    2048,
+		WorkSize:     "4g",
+		TmpfsSize:    "1g",
+		Executor:     exec,
 	}
 	runner := Runner{Name: "aeons-oldtimer-0123456789ab", JITConfig: "one-job-secret"}
 	planned, err := pool.Plan(runner)
@@ -244,16 +258,17 @@ func TestPodmanLifecycleCancellationStopsAttachedRunner(t *testing.T) {
 	processExit := make(chan error)
 	exec := &recordingExecutor{exit: processExit}
 	pool := PodmanPool{
-		Image:      pinnedRunnerImage,
-		OwnerLabel: "oldtimer",
-		CPUs:       "2",
-		Memory:     "8g",
-		PIDsLimit:  2048,
-		WorkSize:   "4g",
-		TmpfsSize:  "1g",
-		Executor:   exec,
-		Lifecycle:  lifecycle,
-		RunTimeout: 45 * time.Minute,
+		Image:        pinnedRunnerImage,
+		OwnerLabel:   "oldtimer",
+		CgroupParent: runnerCgroupParent,
+		CPUs:         "2",
+		Memory:       "8g",
+		PIDsLimit:    2048,
+		WorkSize:     "4g",
+		TmpfsSize:    "1g",
+		Executor:     exec,
+		Lifecycle:    lifecycle,
+		RunTimeout:   45 * time.Minute,
 	}
 	runner := Runner{Name: "aeons-oldtimer-0123456789ab", JITConfig: "one-job-secret"}
 

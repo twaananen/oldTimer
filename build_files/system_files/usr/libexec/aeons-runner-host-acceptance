@@ -7,6 +7,7 @@ if (( EUID != 0 )); then
 fi
 containers_conf=${AEONS_CONTAINERS_CONF:-/usr/lib/aeons-ci/containers.conf}
 acceptance_worker=${AEONS_ACCEPTANCE_WORKER:-/usr/libexec/aeons-runner-host-acceptance-worker}
+cgroup_launcher=${AEONS_CGROUP_LAUNCHER:-/usr/libexec/aeons-cgroup-supervisor-launch}
 if systemctl is-active --quiet aeons-runnerd.service; then
     echo "refusing to probe while aeons-runnerd is active" >&2
     echo "stop it only when no Actions job is active, then rerun this probe" >&2
@@ -75,7 +76,7 @@ systemd-run \
     --setenv=HOME=/var/lib/aeons-ci \
     --setenv=XDG_RUNTIME_DIR=/run/aeons-ci \
     --setenv=CONTAINERS_CONF="$containers_conf" \
-    "$acceptance_worker"
+    "$cgroup_launcher" "$acceptance_worker"
 
 for marker in "${markers[@]}"; do
     counter_after=$(counter_value "$marker")

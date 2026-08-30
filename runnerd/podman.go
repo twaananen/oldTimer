@@ -15,6 +15,8 @@ import (
 
 var ErrRunnerDeadline = errors.New("runner exceeded its maximum lifetime")
 
+const requiredRunnerCgroupParent = "/aeons.slice/aeons-ci.slice/aeons-runnerd.service"
+
 var (
 	pinnedImagePattern = regexp.MustCompile(`^(?:[a-z0-9./_-]+@)?sha256:[0-9a-f]{64}$`)
 	bareImageIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -35,16 +37,17 @@ type Command struct {
 }
 
 type PodmanPool struct {
-	Image      string
-	OwnerLabel string
-	CPUs       string
-	Memory     string
-	PIDsLimit  int
-	WorkSize   string
-	TmpfsSize  string
-	Executor   Executor
-	Lifecycle  context.Context
-	RunTimeout time.Duration
+	Image        string
+	OwnerLabel   string
+	CgroupParent string
+	CPUs         string
+	Memory       string
+	PIDsLimit    int
+	WorkSize     string
+	TmpfsSize    string
+	Executor     Executor
+	Lifecycle    context.Context
+	RunTimeout   time.Duration
 }
 
 type Executor interface {
@@ -94,6 +97,9 @@ func (p PodmanPool) Plan(runner Runner) (Command, error) {
 	if !ownerLabelPattern.MatchString(p.OwnerLabel) {
 		return Command{}, errors.New("invalid owner label")
 	}
+	if p.CgroupParent != requiredRunnerCgroupParent {
+		return Command{}, errors.New("runner cgroup parent is outside the delegated service")
+	}
 	if !runnerNamePattern.MatchString(runner.Name) {
 		return Command{}, errors.New("invalid runner name")
 	}
@@ -114,7 +120,8 @@ func (p PodmanPool) Plan(runner Runner) (Command, error) {
 			"--label", "io.aeons.runnerd.name=" + runner.Name,
 			"--pull=never",
 			"--userns=auto:size=8192",
-			"--cgroups=split",
+			"--cgroups=enabled",
+			"--cgroup-parent=" + p.CgroupParent,
 			"--cpus=" + p.CPUs,
 			"--memory=" + p.Memory,
 			"--memory-swap=" + p.Memory,
