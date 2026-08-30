@@ -133,6 +133,8 @@ grep -qF 'slice_cgroup=$(systemctl show --property=ControlGroup --value aeons-ci
 grep -qF 'expected_cgroup="$slice_cgroup/aeons-runner-host-acceptance-worker.service"' \
   "$acceptance_worker"
 grep -qF 'expected_supervisor="$expected_cgroup/supervisor"' "$acceptance_worker"
+grep -qF 'declare -A seen_container_cgroups=()' "$acceptance_worker"
+grep -qF 'leftover_payload_cgroups=("$unit_root"/libpod-*)' "$acceptance_worker"
 grep -qF 'aeons_uid_map_contains "$forbidden_uid" "/proc/$pid/uid_map"' \
   "$acceptance_worker"
 grep -qF 'private_probe_addresses=(' "$acceptance_worker"
@@ -232,6 +234,18 @@ fi
 uid_map_file="$subid_test_root/uid_map"
 printf '0 589824 8192\n' >"$uid_map_file"
 source "$host_isolation"
+payload_parent=/aeons.slice/aeons-ci.slice/aeons-runnerd.service
+payload_id=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+aeons_is_direct_runner_cgroup "$payload_parent" "$payload_parent/libpod-$payload_id"
+for invalid_cgroup in \
+  "$payload_parent/libpod-$payload_id/runtime" \
+  "$payload_parent/runtime/libpod-$payload_id" \
+  "$payload_parent/libpod-short"; do
+  if aeons_is_direct_runner_cgroup "$payload_parent" "$invalid_cgroup"; then
+    echo "runner cgroup predicate accepted an invalid topology: $invalid_cgroup" >&2
+    exit 1
+  fi
+done
 if aeons_uid_map_contains 1000 "$uid_map_file"; then
   echo "host UID predicate rejected a subordinate-only mapping" >&2
   exit 1

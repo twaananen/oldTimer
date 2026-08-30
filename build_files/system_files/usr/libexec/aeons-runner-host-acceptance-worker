@@ -14,6 +14,7 @@ if [[ -z $slice_cgroup || $slice_cgroup != */aeons-ci.slice ]]; then
 fi
 expected_cgroup="$slice_cgroup/aeons-runner-host-acceptance-worker.service"
 expected_supervisor="$expected_cgroup/supervisor"
+unit_root="/sys/fs/cgroup$expected_cgroup"
 worker_cgroup=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
 if [[ $worker_cgroup != "$expected_supervisor" ]]; then
     echo "worker is outside its stable supervisor cgroup: $worker_cgroup" >&2
@@ -60,7 +61,7 @@ common_args=(
     --entrypoint=/bin/bash
 )
 names=()
-container_cgroups=()
+declare -A seen_container_cgroups=()
 cleanup() {
     local name
     for name in "${names[@]}"; do
@@ -96,16 +97,24 @@ for name in "${names[@]}"; do
         fi
     done
     container_cgroup=$(awk -F: '$1 == "0" { print $3 }' "/proc/$pid/cgroup")
-    if [[ $container_cgroup != "$expected_cgroup/libpod-"* ]]; then
+    if ! aeons_is_direct_runner_cgroup "$expected_cgroup" "$container_cgroup"; then
         echo "probe is outside the delegated runner service: $container_cgroup" >&2
         exit 1
     fi
-    container_cgroups+=("$container_cgroup")
+    if [[ -n ${seen_container_cgroups[$container_cgroup]+x} ]]; then
+        echo "probes share one runner cgroup: $container_cgroup" >&2
+        exit 1
+    fi
+    seen_container_cgroups[$container_cgroup]=$name
     grep -qx '200000 100000' "/sys/fs/cgroup$container_cgroup/cpu.max"
     grep -qx 8589934592 "/sys/fs/cgroup$container_cgroup/memory.max"
     grep -qx 0 "/sys/fs/cgroup$container_cgroup/memory.swap.max"
     grep -qx 2048 "/sys/fs/cgroup$container_cgroup/pids.max"
 done
+if (( ${#seen_container_cgroups[@]} != 4 )); then
+    echo "expected four distinct runner cgroups, found ${#seen_container_cgroups[@]}" >&2
+    exit 1
+fi
 worker_cgroup_after=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
 if [[ $worker_cgroup_after != "$expected_supervisor" ]]; then
     echo "Podman launch moved the persistent worker cgroup: $worker_cgroup_after" >&2
@@ -184,9 +193,11 @@ if [[ -n $(podman ps --all --filter "$owner_filter" --format '{{.Names}}') ]]; t
     echo "probe cleanup left runner-owned containers behind" >&2
     exit 1
 fi
-for container_cgroup in "${container_cgroups[@]}"; do
-    if [[ -e /sys/fs/cgroup$container_cgroup ]]; then
-        echo "probe cleanup left a runner cgroup behind: $container_cgroup" >&2
-        exit 1
-    fi
-done
+shopt -s nullglob
+leftover_payload_cgroups=("$unit_root"/libpod-*)
+shopt -u nullglob
+if (( ${#leftover_payload_cgroups[@]} != 0 )); then
+    printf 'probe cleanup left runner cgroups behind:\n' >&2
+    printf '  %s\n' "${leftover_payload_cgroups[@]}" >&2
+    exit 1
+fi
