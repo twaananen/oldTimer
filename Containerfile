@@ -20,6 +20,7 @@ COPY --from=ctx /runner-image /usr/share/aeons-runner-image
 
 RUN systemd-analyze verify \
         aeons-ci.slice \
+        aeons-ci-host-setup.service \
         aeons-ci-firewall.service \
         aeons-runner-image.service \
         aeons-runnerd.service \

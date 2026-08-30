@@ -1,7 +1,7 @@
 [Unit]
 Description=Aeons CI private-network egress denial
-Requires=systemd-sysusers.service
-After=systemd-sysusers.service
+Requires=aeons-ci-host-setup.service
+After=aeons-ci-host-setup.service
 Before=aeons-runner-image.service aeons-runnerd.service
 
 [Service]

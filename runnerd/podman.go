@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ var ErrRunnerDeadline = errors.New("runner exceeded its maximum lifetime")
 
 var (
 	pinnedImagePattern = regexp.MustCompile(`^(?:[a-z0-9./_-]+@)?sha256:[0-9a-f]{64}$`)
+	bareImageIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	imageTagPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9./:_-]{0,254}$`)
 	ownerLabelPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,62}$`)
 	runnerNamePattern  = regexp.MustCompile(`^aeons-oldtimer-[0-9a-f]{12}$`)
@@ -53,7 +55,14 @@ type Executor interface {
 type OSExecutor struct{}
 
 func (OSExecutor) Output(ctx context.Context, command Command) ([]byte, error) {
-	return exec.CommandContext(ctx, command.Path, command.Args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, command.Path, command.Args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
+	if err != nil && stderr.Len() > 0 {
+		return output, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return output, err
 }
 
 func (OSExecutor) Start(ctx context.Context, command Command) (<-chan error, error) {
@@ -97,7 +106,6 @@ func (p PodmanPool) Plan(runner Runner) (Command, error) {
 		Env: map[string]string{
 			"ACTIONS_RUNNER_INPUT_JITCONFIG":     runner.JITConfig,
 			"ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT": "1",
-			"HOME":                               "/runner",
 		},
 		Args: []string{
 			"run", "--rm",
@@ -122,7 +130,7 @@ func (p PodmanPool) Plan(runner Runner) (Command, error) {
 			"--dns=9.9.9.9",
 			"--user=runner",
 			"--workdir=/runner",
-			"--env", "HOME",
+			"--env", "HOME=/runner",
 			"--env", "ACTIONS_RUNNER_INPUT_JITCONFIG",
 			"--env", "ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT",
 			p.Image,
@@ -224,6 +232,9 @@ func (p PodmanPool) ResolveImage(ctx context.Context, tag string) (string, error
 		return "", fmt.Errorf("inspect local runner image: %w", err)
 	}
 	id := strings.TrimSpace(string(output))
+	if bareImageIDPattern.MatchString(id) {
+		id = "sha256:" + id
+	}
 	if !pinnedImagePattern.MatchString(id) {
 		return "", errors.New("local runner image did not resolve to an immutable image ID")
 	}

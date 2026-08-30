@@ -69,6 +69,28 @@ func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, desired int) (int
 	}
 
 	target := min(desired, s.maxRunners)
+	if len(s.runners) > target {
+		names := make([]string, 0, len(s.runners))
+		for name, runner := range s.runners {
+			if !runner.started {
+				names = append(names, name)
+			}
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if len(s.runners) <= target {
+				break
+			}
+			runner := s.runners[name]
+			if err := s.runtime.Remove(ctx, name); err != nil {
+				return len(s.runners), fmt.Errorf("remove surplus runner %q: %w", name, err)
+			}
+			if err := s.jit.Remove(ctx, runner.serverID); err != nil {
+				return len(s.runners), fmt.Errorf("remove surplus server runner %q: %w", name, err)
+			}
+			delete(s.runners, name)
+		}
+	}
 	for len(s.runners) < target {
 		name := s.newName()
 		jitRunner, err := s.jit.Generate(ctx, name)

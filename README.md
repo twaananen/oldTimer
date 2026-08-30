@@ -10,7 +10,13 @@ account. It never uses Tommi's Podman storage, the host Docker daemon, k3d, or a
 container-engine socket.
 
 The units are intentionally disabled in the image. Activate them only after the
-new deployment is booted and the following gate is completed.
+new deployment is booted and the following gate is completed. On first
+activation, the firewall pulls in a root oneshot that reconciles the dedicated
+`aeons-ci` subordinate UID/GID range in the host's persistent `/etc`; baking
+that range into an atomic image is insufficient because an existing `/etc` is
+preserved across deployments. The runner services also use their own Podman
+configuration with cgroupfs inside the delegated `aeons-ci.slice`, so they do
+not require a login session and do not alter any other user's Podman defaults.
 
 ### Provision the GitHub App
 
@@ -72,8 +78,11 @@ their cgroup ancestry and the following contract, then removes only those names:
 - Four concurrent containers enforce 2 CPUs, 8 GiB, 2,048 PIDs, and the
   aggregate slice remains below 8 CPUs/40 GiB.
 - Public DNS and HTTPS work; container-local loopback works.
-- nft counters prove rejection of `192.168.0.11`, `192.168.0.1`, Docker/k3d
-  bridge ranges, `100.64.0.0/10`, link-local, host-local, and all IPv6 traffic.
+- Container probes prove `192.168.0.11`, `192.168.0.1`, Docker/k3d bridge
+  ranges, `100.64.0.0/10`, link-local, host-local, and all IPv6 traffic are
+  unreachable through pasta. Separate host-side probes running as `aeons-ci`
+  increment every matching nft reject counter, proving the fallback firewall
+  even when pasta rejects a container request first.
 - `/etc` is read-only; host homes, service data, engine sockets, published
   ports, host devices, and host UID 1000 are absent; `CapEff` is zero and
   `NoNewPrivs` is one.
@@ -164,7 +173,7 @@ assert_runner_cleanup
 
 run_id=$(start_canary timeout)
 ! gh run watch "$run_id" --repo "$repo" --exit-status
-test "$(gh run view "$run_id" --repo "$repo" --json conclusion --jq .conclusion)" = failure
+test "$(gh run view "$run_id" --repo "$repo" --json conclusion --jq .conclusion)" = cancelled
 test "$(gh run view "$run_id" --repo "$repo" --json jobs --jq '[.jobs[].steps[] | select(.name == "Verify qualified toolchain and container boundary") | .conclusion] | unique | .[]')" = success
 assert_runner_cleanup
 

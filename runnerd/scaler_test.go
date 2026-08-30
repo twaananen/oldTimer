@@ -38,6 +38,32 @@ func TestScalerCapsDemandAndStartsOneJITRunnerPerSlot(t *testing.T) {
 	}
 }
 
+func TestScalerRemovesUnstartedRunnerWhenDemandFalls(t *testing.T) {
+	jit := &fakeJITSource{}
+	runtime := &fakeRuntime{}
+	scaler := NewScaler(1, jit, runtime, func() string {
+		return "aeons-oldtimer-000000000001"
+	})
+	ctx := context.Background()
+
+	if _, err := scaler.HandleDesiredRunnerCount(ctx, 1); err != nil {
+		t.Fatalf("start runner: %v", err)
+	}
+	got, err := scaler.HandleDesiredRunnerCount(ctx, 0)
+	if err != nil {
+		t.Fatalf("scale down runner: %v", err)
+	}
+	if got != 0 {
+		t.Fatalf("active runners = %d, want 0", got)
+	}
+	if want := []string{"aeons-oldtimer-000000000001"}; !reflect.DeepEqual(runtime.removed, want) {
+		t.Fatalf("removed runners %v, want %v", runtime.removed, want)
+	}
+	if want := []int64{1}; !reflect.DeepEqual(jit.removed, want) {
+		t.Fatalf("removed server runners %v, want %v", jit.removed, want)
+	}
+}
+
 func TestScalerCompletionRemovesRunnerOnceAndFreesItsSlot(t *testing.T) {
 	jit := &fakeJITSource{}
 	runtime := &fakeRuntime{}

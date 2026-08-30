@@ -7,10 +7,14 @@ unit_root="$system_root/usr/lib/systemd/system"
 runner_unit="$unit_root/aeons-runnerd.service"
 runner_slice="$unit_root/aeons-ci.slice"
 image_unit="$unit_root/aeons-runner-image.service"
+host_setup_unit="$unit_root/aeons-ci-host-setup.service"
 firewall="$system_root/usr/lib/aeons-ci/network.nft"
 runner_env="$system_root/usr/lib/aeons-ci/runner.env"
+containers_conf="$system_root/usr/lib/aeons-ci/containers.conf"
 acceptance="$system_root/usr/libexec/aeons-runner-host-acceptance"
 acceptance_worker="$system_root/usr/libexec/aeons-runner-host-acceptance-worker"
+host_setup="$system_root/usr/libexec/aeons-ci-host-setup"
+host_isolation="$system_root/usr/lib/aeons-ci/host-isolation.sh"
 
 for setting in \
   'User=aeons-ci' \
@@ -28,7 +32,9 @@ for forbidden in \
   'NoNewPrivileges=yes' \
   'RestrictSUIDSGID=yes' \
   'ProtectControlGroups=yes' \
-  'PrivateDevices=yes'; do
+  'PrivateDevices=yes' \
+  'ProtectKernelTunables=yes' \
+  'ProtectKernelLogs=yes'; do
   if grep -qxF "$forbidden" "$runner_unit"; then
     echo "runnerd unit blocks rootless Podman: $forbidden" >&2
     exit 1
@@ -60,24 +66,52 @@ if grep -qF 'counter_total()' "$acceptance"; then
 fi
 
 grep -qF 'LoadCredentialEncrypted=github-app-key' "$runner_unit"
+grep -qxF 'Requires=aeons-ci-host-setup.service' "$system_root/usr/lib/systemd/system/aeons-ci-firewall.service"
+grep -qxF 'ExecStart=/usr/libexec/aeons-ci-host-setup' "$host_setup_unit"
 grep -qF 'BindReadOnlyPaths=/usr/lib/aeons-ci/resolv.conf:/etc/resolv.conf' "$runner_unit"
-grep -qF 'EnvironmentFile=/usr/lib/aeons-ci/runner.env' "$runner_unit"
-grep -qF 'EnvironmentFile=/usr/lib/aeons-ci/runner.env' "$image_unit"
+for unit in "$runner_unit" "$image_unit"; do
+  grep -qF 'EnvironmentFile=/usr/lib/aeons-ci/runner.env' "$unit"
+  if grep -qF 'Environment=CONTAINERS_CONF=' "$unit"; then
+    echo "runner units must take shared Podman configuration from runner.env" >&2
+    exit 1
+  fi
+done
+grep -qxF 'cgroup_manager = "cgroupfs"' "$containers_conf"
 grep -qxF 'AEONS_RUNNERD_IMAGE_TAG=localhost/aeons-actions-runner:oldtimer' "$runner_env"
+grep -qxF 'CONTAINERS_CONF=/usr/lib/aeons-ci/containers.conf' "$runner_env"
 grep -qF 'nameserver 1.1.1.1' "$system_root/usr/lib/aeons-ci/resolv.conf"
 grep -qF 'nameserver 9.9.9.9' "$system_root/usr/lib/aeons-ci/resolv.conf"
 
 bash -n "$system_root/usr/libexec/aeons-runner-image-ensure"
+bash -n "$host_setup"
 bash -n "$acceptance"
 bash -n "$acceptance_worker"
+bash -n "$host_isolation"
 grep -qF 'systemctl is-active --quiet aeons-runnerd.service' "$acceptance"
+grep -qF 'containers_conf=${AEONS_CONTAINERS_CONF:-/usr/lib/aeons-ci/containers.conf}' "$acceptance"
+grep -qF 'acceptance_worker=${AEONS_ACCEPTANCE_WORKER:-/usr/libexec/aeons-runner-host-acceptance-worker}' "$acceptance"
+if grep -qF -- '    --quiet' "$acceptance"; then
+  echo "host acceptance must surface transient unit failures" >&2
+  exit 1
+fi
 for property in \
   '--property=User=aeons-ci' \
   '--property=Group=aeons-ci' \
   '--property=Slice=aeons-ci.slice' \
-  '--property=Delegate=yes'; do
+  '--property=Delegate=yes' \
+  '--property=StateDirectory=aeons-ci' \
+  '--property=StateDirectoryMode=0700' \
+  '--property=RuntimeDirectory=aeons-ci' \
+  '--property=RuntimeDirectoryMode=0700' \
+  '--property=PrivateTmp=yes' \
+  '--property=ProtectSystem=strict' \
+  '--property=ProtectKernelModules=yes' \
+  '--property=LockPersonality=yes' \
+  '--property=RestrictRealtime=yes' \
+  '--setenv=CONTAINERS_CONF="$containers_conf"'; do
   grep -qF -- "$property" "$acceptance"
 done
+grep -qxF '    "$acceptance_worker"' "$acceptance"
 for flag in \
   '--userns=auto:size=8192' \
   '--network=pasta:--ipv4-only,--no-map-gw' \
@@ -88,8 +122,27 @@ for flag in \
 done
 grep -qF 'for suffix in 000000000001 000000000002 000000000003 000000000004' \
   "$acceptance_worker"
-grep -qF 'expected_cgroup=/aeons-ci.slice/aeons-runner-host-acceptance-worker.service' \
+grep -qF 'slice_cgroup=$(systemctl show --property=ControlGroup --value aeons-ci.slice)' \
   "$acceptance_worker"
+grep -qF 'expected_cgroup="$slice_cgroup/aeons-runner-host-acceptance-worker.service"' \
+  "$acceptance_worker"
+grep -qF 'aeons_uid_map_contains "$forbidden_uid" "/proc/$pid/uid_map"' \
+  "$acceptance_worker"
+grep -qF 'private_probe_addresses=(' "$acceptance_worker"
+test "$(grep -cF 'private_probe_addresses=(' "$acceptance_worker")" = 1
+grep -qF 'host_probe_pids+=("$!")' "$acceptance_worker"
+grep -qF 'wait "${host_probe_pids[$index]}"' "$acceptance_worker"
+grep -qF 'host-side private address was reachable: ${private_probe_addresses[$index]}' \
+  "$acceptance_worker"
+grep -qF 'podman rm --force --time=0 --ignore "$name"' "$acceptance_worker"
+if grep -qF '/proc/self/uid_map' "$acceptance_worker"; then
+  echo "acceptance must inspect UID mappings from the host namespace" >&2
+  exit 1
+fi
+if grep -qF '/sys/fs/cgroup/aeons-ci.slice' "$acceptance_worker"; then
+  echo "acceptance must resolve systemd's hierarchical slice path dynamically" >&2
+  exit 1
+fi
 grep -qF 'before_ids=' "$repo_root/README.md"
 grep -qF 'grep -qxF "$run_id" <<<"$before_ids"' "$repo_root/README.md"
 grep -qF 'assert_runner_cleanup()' "$repo_root/README.md"
@@ -99,6 +152,8 @@ if (( $(grep -c '^assert_runner_cleanup$' "$repo_root/README.md") < 7 )); then
 fi
 timeout_boundary_check='test "$(gh run view "$run_id" --repo "$repo" --json jobs --jq '\''[.jobs[].steps[] | select(.name == "Verify qualified toolchain and container boundary") | .conclusion] | unique | .[]'\'')" = success'
 grep -qF "$timeout_boundary_check" "$repo_root/README.md"
+timeout_conclusion_check='test "$(gh run view "$run_id" --repo "$repo" --json conclusion --jq .conclusion)" = cancelled'
+test "$(grep -cF "$timeout_conclusion_check" "$repo_root/README.md")" = 2
 
 diagnostics_dispatch_line=$(grep -nF 'diagnostics_id=$(dispatch_run gd-diagnostics.yml -f runner="$runner")' "$repo_root/README.md" | cut -d: -f1)
 client_dispatch_line=$(grep -nF 'client_id=$(dispatch_run client-gdunit.yml -f runner="$runner")' "$repo_root/README.md" | cut -d: -f1)
@@ -123,6 +178,59 @@ if grep -qF 'runtime/. /runner/' "$repo_root/runner-image/entrypoint.sh"; then
   exit 1
 fi
 grep -qF 'RUN systemd-analyze verify' "$repo_root/Containerfile"
+
+if grep -qE '/etc/sub(uid|gid)' "$repo_root/build_files/build.sh"; then
+  echo "subordinate IDs must be reconciled on the live host, not baked into /etc" >&2
+  exit 1
+fi
+
+subid_test_root=$(mktemp -d)
+trap 'rm -rf -- "$subid_test_root"' EXIT
+subuid_file="$subid_test_root/subuid"
+subgid_file="$subid_test_root/subgid"
+lock_file="$subid_test_root/lock"
+printf 'tommi:524288:65536\n' >"$subuid_file"
+printf 'tommi:524288:65536\n' >"$subgid_file"
+for attempt in 1 2; do
+  AEONS_SUBUID_FILE="$subuid_file" \
+  AEONS_SUBGID_FILE="$subgid_file" \
+  AEONS_SUBID_LOCK_FILE="$lock_file" \
+    "$host_setup"
+done
+test "$(grep -cxF 'aeons-ci:589824:65536' "$subuid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:65536' "$subgid_file")" = 1
+
+printf 'other:600000:1024\n' >"$subuid_file"
+printf 'other:600000:1024\n' >"$subgid_file"
+if AEONS_SUBUID_FILE="$subuid_file" \
+  AEONS_SUBGID_FILE="$subgid_file" \
+  AEONS_SUBID_LOCK_FILE="$lock_file" \
+    "$host_setup" 2>/dev/null; then
+  echo "host setup accepted an overlapping subordinate-ID range" >&2
+  exit 1
+fi
+test "$(wc -l <"$subuid_file")" = 1
+test "$(wc -l <"$subgid_file")" = 1
+
+printf 'aeons-ci:589824:65536\nother:600000:1024\n' >"$subuid_file"
+printf 'aeons-ci:589824:65536\nother:600000:1024\n' >"$subgid_file"
+if AEONS_SUBUID_FILE="$subuid_file" \
+  AEONS_SUBGID_FILE="$subgid_file" \
+  AEONS_SUBID_LOCK_FILE="$lock_file" \
+    "$host_setup" 2>/dev/null; then
+  echo "host setup accepted an overlap beside the expected allocation" >&2
+  exit 1
+fi
+
+uid_map_file="$subid_test_root/uid_map"
+printf '0 589824 8192\n' >"$uid_map_file"
+source "$host_isolation"
+if aeons_uid_map_contains 1000 "$uid_map_file"; then
+  echo "host UID predicate rejected a subordinate-only mapping" >&2
+  exit 1
+fi
+printf '0 1000 8192\n' >"$uid_map_file"
+aeons_uid_map_contains 1000 "$uid_map_file"
 
 if grep -qE 'systemctl enable (aeons-runnerd|aeons-ci-firewall|aeons-runner-image)' "$repo_root/build_files/build.sh"; then
   echo "runner services must remain disabled until live acceptance passes" >&2
