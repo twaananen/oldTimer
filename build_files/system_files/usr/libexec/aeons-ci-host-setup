@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+subuid_file=${AEONS_SUBUID_FILE:-/etc/subuid}
+subgid_file=${AEONS_SUBGID_FILE:-/etc/subgid}
+lock_file=${AEONS_SUBID_LOCK_FILE:-/run/lock/aeons-ci-host-setup.lock}
+user=aeons-ci
+range_start=589824
+range_size=65536
+range_end=$((range_start + range_size))
+entry="$user:$range_start:$range_size"
+subid_files=("$subuid_file" "$subgid_file")
+
+exec 9>"$lock_file"
+flock 9
+
+preflight() {
+    local file=$1 matches overlap
+
+    if [[ ! -f $file ]]; then
+        echo "missing subordinate-ID file: $file" >&2
+        return 1
+    fi
+
+    matches=$(grep -c "^$user:" "$file" || true)
+    if (( matches > 0 )); then
+        if (( matches != 1 )) || ! grep -qxF "$entry" "$file"; then
+            echo "unexpected aeons-ci subordinate-ID allocation in $file" >&2
+            return 1
+        fi
+    fi
+
+    overlap=$(awk -F: -v expected="$entry" -v first="$range_start" -v last="$range_end" '
+        $0 != expected && NF >= 3 && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {
+            entry_last = $2 + $3
+            if ($2 < last && first < entry_last) print $0
+        }
+    ' "$file")
+    if [[ -n $overlap ]]; then
+        echo "requested aeons-ci subordinate-ID range overlaps an existing allocation in $file" >&2
+        return 1
+    fi
+}
+
+for file in "${subid_files[@]}"; do
+    preflight "$file"
+done
+
+for file in "${subid_files[@]}"; do
+    grep -qxF "$entry" "$file" || printf '%s\n' "$entry" >>"$file"
+done

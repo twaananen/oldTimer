@@ -11,6 +11,19 @@ import (
 
 const pinnedRunnerImage = "ghcr.io/actions/actions-runner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+func TestOSExecutorOutputKeepsDiagnosticsOutOfMachineReadableOutput(t *testing.T) {
+	output, err := (OSExecutor{}).Output(context.Background(), Command{
+		Path: "/usr/bin/bash",
+		Args: []string{"-c", "printf 'sha256:data\\n'; printf 'podman warning\\n' >&2"},
+	})
+	if err != nil {
+		t.Fatalf("Output returned an error: %v", err)
+	}
+	if got, want := string(output), "sha256:data\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
 func TestPodmanPlanIsHardenedAndBounded(t *testing.T) {
 	pool := PodmanPool{
 		Image:      pinnedRunnerImage,
@@ -35,7 +48,6 @@ func TestPodmanPlanIsHardenedAndBounded(t *testing.T) {
 		Env: map[string]string{
 			"ACTIONS_RUNNER_INPUT_JITCONFIG":     "one-job-secret",
 			"ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT": "1",
-			"HOME":                               "/runner",
 		},
 		Args: []string{
 			"run", "--rm",
@@ -60,7 +72,7 @@ func TestPodmanPlanIsHardenedAndBounded(t *testing.T) {
 			"--dns=9.9.9.9",
 			"--user=runner",
 			"--workdir=/runner",
-			"--env", "HOME",
+			"--env", "HOME=/runner",
 			"--env", "ACTIONS_RUNNER_INPUT_JITCONFIG",
 			"--env", "ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT",
 			pinnedRunnerImage,
@@ -203,23 +215,27 @@ func TestPodmanStartAndRemoveExecuteOnlyThePlannedRunner(t *testing.T) {
 
 func TestPodmanResolveImageReturnsImmutableLocalImageID(t *testing.T) {
 	imageID := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	exec := &recordingExecutor{outputs: [][]byte{[]byte(imageID + "\n")}}
-	pool := PodmanPool{Executor: exec}
+	for _, output := range []string{imageID, strings.TrimPrefix(imageID, "sha256:")} {
+		t.Run(output[:8], func(t *testing.T) {
+			exec := &recordingExecutor{outputs: [][]byte{[]byte(output + "\n")}}
+			pool := PodmanPool{Executor: exec}
 
-	got, err := pool.ResolveImage(context.Background(), "localhost/aeons-actions-runner:2.337.0-1")
-	if err != nil {
-		t.Fatalf("ResolveImage returned an error: %v", err)
-	}
-	if got != imageID {
-		t.Fatalf("image ID = %q, want %q", got, imageID)
-	}
+			got, err := pool.ResolveImage(context.Background(), "localhost/aeons-actions-runner:2.337.0-1")
+			if err != nil {
+				t.Fatalf("ResolveImage returned an error: %v", err)
+			}
+			if got != imageID {
+				t.Fatalf("image ID = %q, want %q", got, imageID)
+			}
 
-	want := []Command{{
-		Path: "podman",
-		Args: []string{"image", "inspect", "--format", "{{.Id}}", "--", "localhost/aeons-actions-runner:2.337.0-1"},
-	}}
-	if !reflect.DeepEqual(exec.commands, want) {
-		t.Fatalf("unexpected image command\n got: %#v\nwant: %#v", exec.commands, want)
+			want := []Command{{
+				Path: "podman",
+				Args: []string{"image", "inspect", "--format", "{{.Id}}", "--", "localhost/aeons-actions-runner:2.337.0-1"},
+			}}
+			if !reflect.DeepEqual(exec.commands, want) {
+				t.Fatalf("unexpected image command\n got: %#v\nwant: %#v", exec.commands, want)
+			}
+		})
 	}
 }
 

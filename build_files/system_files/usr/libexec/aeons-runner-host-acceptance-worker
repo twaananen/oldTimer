@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source /usr/lib/aeons-ci/host-isolation.sh
+
 if [[ $(id -un) != aeons-ci ]]; then
     echo "worker must run as aeons-ci" >&2
     exit 1
 fi
-expected_cgroup=/aeons-ci.slice/aeons-runner-host-acceptance-worker.service
+slice_cgroup=$(systemctl show --property=ControlGroup --value aeons-ci.slice)
+if [[ -z $slice_cgroup || $slice_cgroup != */aeons-ci.slice ]]; then
+    echo "could not resolve the aeons-ci systemd slice cgroup: $slice_cgroup" >&2
+    exit 1
+fi
+expected_cgroup="$slice_cgroup/aeons-runner-host-acceptance-worker.service"
 worker_cgroup=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
 if [[ $worker_cgroup != "$expected_cgroup" && $worker_cgroup != "$expected_cgroup/"* ]]; then
     echo "worker is outside the delegated aeons-ci slice: $worker_cgroup" >&2
     exit 1
 fi
-grep -qx 42949672960 /sys/fs/cgroup/aeons-ci.slice/memory.max
-grep -qx '800000 100000' /sys/fs/cgroup/aeons-ci.slice/cpu.max
+grep -qx 42949672960 "/sys/fs/cgroup$slice_cgroup/memory.max"
+grep -qx '800000 100000' "/sys/fs/cgroup$slice_cgroup/cpu.max"
 
 source /usr/lib/aeons-ci/runner.env
 : "${AEONS_RUNNERD_IMAGE_TAG:?}"
@@ -50,7 +57,7 @@ names=()
 cleanup() {
     local name
     for name in "${names[@]}"; do
-        podman rm --force --time=2 --ignore "$name" >/dev/null
+        podman rm --force --time=0 --ignore "$name" >/dev/null
     done
 }
 trap cleanup EXIT
@@ -75,6 +82,12 @@ for name in "${names[@]}"; do
         exit 1
     fi
     pid=$(podman inspect --format '{{.State.Pid}}' "$name")
+    for forbidden_uid in "$(id -u)" 1000; do
+        if aeons_uid_map_contains "$forbidden_uid" "/proc/$pid/uid_map"; then
+            echo "host UID $forbidden_uid is mapped into probe: $name" >&2
+            exit 1
+        fi
+    done
     container_cgroup=$(awk -F: '$1 == "0" { print $3 }' "/proc/$pid/cgroup")
     if [[ $container_cgroup != "$expected_cgroup/"* ]]; then
         echo "probe is outside the delegated aeons-ci slice: $container_cgroup" >&2
@@ -82,6 +95,13 @@ for name in "${names[@]}"; do
     fi
 done
 
+private_probe_addresses=(
+    192.168.0.1
+    192.168.0.11
+    172.17.0.1
+    100.64.0.1
+    169.254.169.254
+)
 probe='set -euo pipefail
 test "$(id -u)" = 1001
 grep -Eq "^CapEff:[[:space:]]+0+$" /proc/self/status
@@ -93,10 +113,6 @@ awk '\''$2 == "/" { split($4, options, ","); for (i in options) if (options[i] =
 for path in /var/home/tommi /var/mnt/storage /var/mnt/Photos /var/mnt/Viihde /var/run/docker.sock /run/podman/podman.sock /dev/dri /dev/kvm; do
     test ! -e "$path"
 done
-if awk '\''$2 <= 1000 && 1000 < $2 + $3 { found=1 } END { exit found ? 0 : 1 }'\'' /proc/self/uid_map; then
-    echo "host UID 1000 is mapped" >&2
-    exit 1
-fi
 getent ahostsv4 github.com >/dev/null
 curl --fail --silent --show-error --max-time 10 https://api.github.com/zen >/dev/null
 python3 -m http.server 18080 --bind 127.0.0.1 >/tmp/loopback.log 2>&1 &
@@ -108,7 +124,7 @@ for attempt in 1 2 3 4 5; do
 done
 kill "$server"
 trap - EXIT
-for address in 192.168.0.1 192.168.0.11 172.17.0.1 100.64.0.1 169.254.169.254; do
+for address in "$@"; do
     if curl --noproxy "*" --silent --connect-timeout 1 --max-time 2 "http://$address/" >/dev/null 2>&1; then
         echo "private address was reachable: $address" >&2
         exit 1
@@ -118,7 +134,23 @@ if curl -6 --noproxy "*" --silent --connect-timeout 1 --max-time 2 "https://[260
     echo "IPv6 was reachable" >&2
     exit 1
 fi'
-podman exec "${names[0]}" /bin/bash -lc "$probe"
+podman exec "${names[0]}" /bin/bash -lc "$probe" probe \
+    "${private_probe_addresses[@]}"
+
+host_probe_pids=()
+for address in "${private_probe_addresses[@]}"; do
+    (
+        ! curl --noproxy '*' --silent --connect-timeout 1 --max-time 2 \
+            "http://$address/" >/dev/null 2>&1
+    ) &
+    host_probe_pids+=("$!")
+done
+for index in "${!host_probe_pids[@]}"; do
+    if ! wait "${host_probe_pids[$index]}"; then
+        echo "host-side private address was reachable: ${private_probe_addresses[$index]}" >&2
+        exit 1
+    fi
+done
 
 ipv6_target=2606:4700:4700::1111
 if ip -6 route get "$ipv6_target" >/dev/null 2>&1; then

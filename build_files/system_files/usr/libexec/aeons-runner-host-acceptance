@@ -5,6 +5,8 @@ if (( EUID != 0 )); then
     echo "run as root: sudo /usr/libexec/aeons-runner-host-acceptance" >&2
     exit 1
 fi
+containers_conf=${AEONS_CONTAINERS_CONF:-/usr/lib/aeons-ci/containers.conf}
+acceptance_worker=${AEONS_ACCEPTANCE_WORKER:-/usr/libexec/aeons-runner-host-acceptance-worker}
 if systemctl is-active --quiet aeons-runnerd.service; then
     echo "refusing to probe while aeons-runnerd is active" >&2
     echo "stop it only when no Actions job is active, then rerun this probe" >&2
@@ -52,7 +54,6 @@ if ip -6 route get "$ipv6_target" >/dev/null 2>&1; then
 fi
 
 systemd-run \
-    --quiet \
     --wait \
     --pipe \
     --collect \
@@ -62,9 +63,19 @@ systemd-run \
     --property=Group=aeons-ci \
     --property=Slice=aeons-ci.slice \
     --property=Delegate=yes \
+    --property=StateDirectory=aeons-ci \
+    --property=StateDirectoryMode=0700 \
+    --property=RuntimeDirectory=aeons-ci \
+    --property=RuntimeDirectoryMode=0700 \
+    --property=PrivateTmp=yes \
+    --property=ProtectSystem=strict \
+    --property=ProtectKernelModules=yes \
+    --property=LockPersonality=yes \
+    --property=RestrictRealtime=yes \
     --setenv=HOME=/var/lib/aeons-ci \
     --setenv=XDG_RUNTIME_DIR=/run/aeons-ci \
-    /usr/libexec/aeons-runner-host-acceptance-worker
+    --setenv=CONTAINERS_CONF="$containers_conf" \
+    "$acceptance_worker"
 
 for marker in "${markers[@]}"; do
     counter_after=$(counter_value "$marker")

@@ -29,9 +29,7 @@ TimeoutStopSec=75s
 UMask=0077
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ProtectKernelLogs=yes
 LockPersonality=yes
 RestrictRealtime=yes
 
