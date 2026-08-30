@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.25.7@sha256:5a79b94c34c299ac0361fbb7c7fca6dc552e166b42341050323fa3ab137d7be9 AS runnerd-build
+FROM docker.io/library/golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1 AS runnerd-build
 WORKDIR /src
 COPY runnerd/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=0.1.0" -o /out/aeons-runnerd .
