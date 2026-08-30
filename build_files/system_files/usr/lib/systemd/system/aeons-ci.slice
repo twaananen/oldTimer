@@ -1,0 +1,10 @@
+[Unit]
+Description=Aeons CI aggregate resource budget
+
+[Slice]
+CPUQuota=800%
+CPUWeight=10
+IOWeight=10
+MemoryHigh=32G
+MemoryMax=40G
+TasksMax=9000

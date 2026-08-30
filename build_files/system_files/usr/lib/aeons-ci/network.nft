@@ -1,0 +1,26 @@
+table inet aeons_ci {
+    chain output {
+        type filter hook output priority filter - 10; policy accept;
+
+        meta skuid "aeons-ci" ip daddr 192.168.0.11 fib daddr type local counter reject comment "aeons-ci-probe-host-local"
+        meta skuid "aeons-ci" ip daddr 192.168.0.1 counter reject comment "aeons-ci-probe-lan-gateway"
+        meta skuid "aeons-ci" ip daddr 172.17.0.1 counter reject comment "aeons-ci-probe-docker-bridge"
+        meta skuid "aeons-ci" ip daddr 100.64.0.1 counter reject comment "aeons-ci-probe-carrier-grade"
+        meta skuid "aeons-ci" ip daddr 169.254.169.254 counter reject comment "aeons-ci-probe-link-local"
+        meta skuid "aeons-ci" ip6 daddr 2606:4700:4700::1111 counter reject comment "aeons-ci-probe-ipv6"
+
+        meta skuid "aeons-ci" meta nfproto ipv6 counter reject
+        meta skuid "aeons-ci" fib daddr type local counter reject
+        meta skuid "aeons-ci" ip daddr {
+            0.0.0.0/8,
+            10.0.0.0/8,
+            100.64.0.0/10,
+            127.0.0.0/8,
+            169.254.0.0/16,
+            172.16.0.0/12,
+            192.168.0.0/16,
+            224.0.0.0/4,
+            240.0.0.0/4
+        } counter reject
+    }
+}

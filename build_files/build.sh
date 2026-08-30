@@ -4,6 +4,11 @@ set -ouex pipefail
 # Copy system overlay files into the image
 cp -r /ctx/system_files/* /
 
+# Dedicated subordinate IDs keep untrusted runner user namespaces away from
+# the workstation user's rootless Podman allocation.
+grep -q '^aeons-ci:' /etc/subuid || echo 'aeons-ci:589824:65536' >> /etc/subuid
+grep -q '^aeons-ci:' /etc/subgid || echo 'aeons-ci:589824:65536' >> /etc/subgid
+
 # Install packages
 dnf5 install -y \
     snapraid \

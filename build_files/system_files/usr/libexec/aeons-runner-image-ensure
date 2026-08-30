@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${AEONS_RUNNERD_IMAGE_TAG:?}"
+
+podman build \
+    --dns=1.1.1.1 \
+    --dns=9.9.9.9 \
+    --pull=missing \
+    --tag "$AEONS_RUNNERD_IMAGE_TAG" \
+    --file /usr/share/aeons-runner-image/Containerfile \
+    /usr/share/aeons-runner-image

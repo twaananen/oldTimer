@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( EUID != 0 )); then
+    echo "run as root: sudo /usr/libexec/aeons-runner-host-acceptance" >&2
+    exit 1
+fi
+if systemctl is-active --quiet aeons-runnerd.service; then
+    echo "refusing to probe while aeons-runnerd is active" >&2
+    echo "stop it only when no Actions job is active, then rerun this probe" >&2
+    exit 1
+fi
+for service in aeons-ci-firewall.service aeons-runner-image.service; do
+    if ! systemctl is-active --quiet "$service"; then
+        echo "$service must be active" >&2
+        exit 1
+    fi
+done
+counter_value() {
+    local marker=$1
+    nft --json list chain inet aeons_ci output |
+        jq --arg marker "$marker" \
+            '[.nftables[].rule | select(.comment == $marker) | .expr[]? | select(has("counter")) | .counter.packets] | if length == 1 then .[0] else error("missing or duplicate counter") end'
+}
+rule_is_reject() {
+    local marker=$1
+    nft --json list chain inet aeons_ci output |
+        jq --exit-status --arg marker "$marker" \
+            '[.nftables[].rule | select(.comment == $marker)] | length == 1 and any(.[0].expr[]?; has("counter")) and any(.[0].expr[]?; has("reject"))' \
+            >/dev/null
+}
+markers=(
+    aeons-ci-probe-host-local
+    aeons-ci-probe-lan-gateway
+    aeons-ci-probe-docker-bridge
+    aeons-ci-probe-carrier-grade
+    aeons-ci-probe-link-local
+    aeons-ci-probe-ipv6
+)
+declare -A counter_before
+for marker in "${markers[@]}"; do
+    if ! rule_is_reject "$marker"; then
+        echo "missing or malformed live aeons_ci reject: $marker" >&2
+        exit 1
+    fi
+    counter_before[$marker]=$(counter_value "$marker")
+done
+ipv6_target=2606:4700:4700::1111
+ipv6_routed=false
+if ip -6 route get "$ipv6_target" >/dev/null 2>&1; then
+    ipv6_routed=true
+fi
+
+systemd-run \
+    --quiet \
+    --wait \
+    --pipe \
+    --collect \
+    --unit=aeons-runner-host-acceptance-worker.service \
+    --property=Type=exec \
+    --property=User=aeons-ci \
+    --property=Group=aeons-ci \
+    --property=Slice=aeons-ci.slice \
+    --property=Delegate=yes \
+    --setenv=HOME=/var/lib/aeons-ci \
+    --setenv=XDG_RUNTIME_DIR=/run/aeons-ci \
+    /usr/libexec/aeons-runner-host-acceptance-worker
+
+for marker in "${markers[@]}"; do
+    counter_after=$(counter_value "$marker")
+    if [[ $marker = aeons-ci-probe-ipv6 && $ipv6_routed = false ]]; then
+        echo "SKIP: no host IPv6 route; live reject and container IPv4-only boundary proved"
+        continue
+    fi
+    if (( counter_after <= counter_before[$marker] )); then
+        echo "probe did not reach its aeons_ci nftables reject: $marker" >&2
+        exit 1
+    fi
+done
+echo "PASS: four-runner host isolation, slice ancestry, egress, and exact cleanup"

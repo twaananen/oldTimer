@@ -1,0 +1,25 @@
+[Unit]
+Description=Build the pinned Aeons Actions runner image
+Requires=aeons-ci-firewall.service
+After=aeons-ci-firewall.service network-online.target
+Before=aeons-runnerd.service
+
+[Service]
+Type=oneshot
+User=aeons-ci
+Group=aeons-ci
+Slice=aeons-ci.slice
+Delegate=yes
+StateDirectory=aeons-ci
+StateDirectoryMode=0700
+RuntimeDirectory=aeons-ci
+RuntimeDirectoryMode=0700
+Environment=HOME=/var/lib/aeons-ci
+Environment=XDG_RUNTIME_DIR=/run/aeons-ci
+EnvironmentFile=/usr/lib/aeons-ci/runner.env
+BindReadOnlyPaths=/usr/lib/aeons-ci/resolv.conf:/etc/resolv.conf
+ExecStart=/usr/libexec/aeons-runner-image-ensure
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
