@@ -224,6 +224,24 @@ func TestScalerShutdownRemovesRegistrationAllocatedDuringCanceledLaunch(t *testi
 	}
 }
 
+func TestScalerShutdownReconcilesCreationCanceledBeforeResponse(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	jit := &fakeJITSource{cancelAfterGenerate: cancel, generateErr: context.Canceled}
+	scaler := NewScaler(1, jit, &fakeRuntime{}, func() string {
+		return "aeons-oldtimer-000000000001"
+	})
+
+	if _, err := scaler.HandleDesiredRunnerCount(ctx, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("HandleDesiredRunnerCount error = %v, want context canceled", err)
+	}
+	if err := scaler.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned an error: %v", err)
+	}
+	if want := []string{"aeons-oldtimer-000000000001"}; !reflect.DeepEqual(jit.removedNames, want) {
+		t.Fatalf("reconciled runner names %v, want %v", jit.removedNames, want)
+	}
+}
+
 func TestScalerShutdownRemovesLocalAndServerRunners(t *testing.T) {
 	jit := &fakeJITSource{}
 	runtime := &fakeRuntime{}
@@ -275,12 +293,17 @@ type fakeJITSource struct {
 	cancelAfterGenerate context.CancelFunc
 	cancelOnRemove      context.CancelFunc
 	honorContext        bool
+	generateErr         error
+	removedNames        []string
 }
 
 func (j *fakeJITSource) Generate(_ context.Context, name string) (JITRunner, error) {
 	j.nextID++
 	if j.cancelAfterGenerate != nil {
 		j.cancelAfterGenerate()
+	}
+	if j.generateErr != nil {
+		return JITRunner{}, j.generateErr
 	}
 	return JITRunner{Config: "jit-" + name, ServerID: j.nextID}, nil
 }
@@ -293,6 +316,11 @@ func (j *fakeJITSource) Remove(ctx context.Context, serverID int64) error {
 		return ctx.Err()
 	}
 	j.removed = append(j.removed, serverID)
+	return nil
+}
+
+func (j *fakeJITSource) RemoveByName(_ context.Context, name string) error {
+	j.removedNames = append(j.removedNames, name)
 	return nil
 }
 

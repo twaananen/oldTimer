@@ -12,6 +12,7 @@ import (
 type JITSource interface {
 	Generate(context.Context, string) (JITRunner, error)
 	Remove(context.Context, int64) error
+	RemoveByName(context.Context, string) error
 }
 
 type JITRunner struct {
@@ -30,6 +31,7 @@ type Scaler struct {
 	runtime    RunnerRuntime
 	newName    func() string
 	runners    map[string]activeRunner
+	pending    map[string]struct{}
 }
 
 type activeRunner struct {
@@ -45,6 +47,7 @@ func NewScaler(maxRunners int, jit JITSource, runtime RunnerRuntime, newName fun
 		runtime:    runtime,
 		newName:    newName,
 		runners:    make(map[string]activeRunner),
+		pending:    make(map[string]struct{}),
 	}
 }
 
@@ -93,10 +96,12 @@ func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, desired int) (int
 	}
 	for len(s.runners) < target {
 		name := s.newName()
+		s.pending[name] = struct{}{}
 		jitRunner, err := s.jit.Generate(ctx, name)
 		if err != nil {
 			return len(s.runners), fmt.Errorf("generate JIT config: %w", err)
 		}
+		delete(s.pending, name)
 		s.runners[name] = activeRunner{serverID: jitRunner.ServerID}
 		exit, err := s.runtime.Start(ctx, Runner{Name: name, JITConfig: jitRunner.Config})
 		jitRunner.Config = ""
@@ -152,6 +157,17 @@ func (s *Scaler) Shutdown(ctx context.Context) error {
 		if err := s.runtime.Remove(ctx, name); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove local runner %q: %w", name, err))
 		}
+	}
+	pendingNames := make([]string, 0, len(s.pending))
+	for name := range s.pending {
+		pendingNames = append(pendingNames, name)
+	}
+	sort.Strings(pendingNames)
+	for _, name := range pendingNames {
+		if err := s.jit.RemoveByName(ctx, name); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("reconcile pending server runner %q: %w", name, err))
+		}
+		delete(s.pending, name)
 	}
 	for _, name := range names {
 		runner := s.runners[name]

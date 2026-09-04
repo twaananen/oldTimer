@@ -44,11 +44,11 @@ func TestRetryingJITClientReconcilesAmbiguousCreationWithoutRepeatingIt(t *testi
 	})
 	ctx := context.Background()
 
-	if _, err := client.GenerateJitRunnerConfig(ctx, &scaleset.RunnerScaleSetJitRunnerSetting{Name: "runner"}, 42); err == nil {
-		t.Fatal("GenerateJitRunnerConfig accepted an ambiguous creation")
+	if _, err := client.GenerateJitRunnerConfig(ctx, &scaleset.RunnerScaleSetJitRunnerSetting{Name: "runner"}, 42); err != nil {
+		t.Fatalf("GenerateJitRunnerConfig returned an error after reconciliation: %v", err)
 	}
-	if inner.generateCalls != 1 || inner.getCalls != 1 || inner.removeCalls != 1 || waits != 0 {
-		t.Fatalf("calls generate=%d get=%d remove=%d waits=%d, want 1/1/1/0", inner.generateCalls, inner.getCalls, inner.removeCalls, waits)
+	if inner.generateCalls != 2 || inner.getCalls != 1 || inner.removeCalls != 1 || waits != 1 {
+		t.Fatalf("calls generate=%d get=%d remove=%d waits=%d, want 2/1/1/1", inner.generateCalls, inner.getCalls, inner.removeCalls, waits)
 	}
 }
 
@@ -111,5 +111,6 @@ func (c *fakeJITClient) RemoveRunner(_ context.Context, _ int64) error {
 		c.removeErrors = c.removeErrors[1:]
 		return err
 	}
+	c.foundRunner = nil
 	return c.removeErr
 }
