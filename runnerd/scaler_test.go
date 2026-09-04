@@ -202,6 +202,46 @@ func TestScalerRemovesServerRunnerWhenContainerLaunchFails(t *testing.T) {
 	}
 }
 
+func TestScalerShutdownRemovesRegistrationAllocatedDuringCanceledLaunch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	jit := &fakeJITSource{cancelAfterGenerate: cancel, honorContext: true}
+	runtime := &fakeRuntime{honorContext: true}
+	scaler := NewScaler(1, jit, runtime, func() string {
+		return "aeons-oldtimer-000000000001"
+	})
+
+	if _, err := scaler.HandleDesiredRunnerCount(ctx, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("HandleDesiredRunnerCount error = %v, want context canceled", err)
+	}
+	if len(jit.removed) != 0 {
+		t.Fatalf("registration was removed through canceled request context: %v", jit.removed)
+	}
+	if err := scaler.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned an error: %v", err)
+	}
+	if want := []int64{1}; !reflect.DeepEqual(jit.removed, want) {
+		t.Fatalf("removed server runners %v, want %v", jit.removed, want)
+	}
+}
+
+func TestScalerShutdownReconcilesCreationCanceledBeforeResponse(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	jit := &fakeJITSource{cancelAfterGenerate: cancel, generateErr: context.Canceled}
+	scaler := NewScaler(1, jit, &fakeRuntime{}, func() string {
+		return "aeons-oldtimer-000000000001"
+	})
+
+	if _, err := scaler.HandleDesiredRunnerCount(ctx, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("HandleDesiredRunnerCount error = %v, want context canceled", err)
+	}
+	if err := scaler.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned an error: %v", err)
+	}
+	if want := []string{"aeons-oldtimer-000000000001"}; !reflect.DeepEqual(jit.removedNames, want) {
+		t.Fatalf("reconciled runner names %v, want %v", jit.removedNames, want)
+	}
+}
+
 func TestScalerShutdownRemovesLocalAndServerRunners(t *testing.T) {
 	jit := &fakeJITSource{}
 	runtime := &fakeRuntime{}
@@ -226,29 +266,76 @@ func TestScalerShutdownRemovesLocalAndServerRunners(t *testing.T) {
 	}
 }
 
+func TestScalerShutdownRemovesAllLocalRunnersBeforeRemoteCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	jit := &fakeJITSource{cancelOnRemove: cancel, honorContext: true}
+	runtime := &fakeRuntime{honorContext: true}
+	next := 0
+	scaler := NewScaler(2, jit, runtime, func() string {
+		next++
+		return fmt.Sprintf("aeons-oldtimer-%012x", next)
+	})
+	if _, err := scaler.HandleDesiredRunnerCount(context.Background(), 2); err != nil {
+		t.Fatalf("start runners: %v", err)
+	}
+
+	if err := scaler.Shutdown(ctx); err == nil {
+		t.Fatal("Shutdown accepted canceled remote cleanup")
+	}
+	if want := []string{"aeons-oldtimer-000000000001", "aeons-oldtimer-000000000002"}; !reflect.DeepEqual(runtime.removed, want) {
+		t.Fatalf("removed local runners %v, want %v", runtime.removed, want)
+	}
+}
+
 type fakeJITSource struct {
-	nextID  int64
-	removed []int64
+	nextID              int64
+	removed             []int64
+	cancelAfterGenerate context.CancelFunc
+	cancelOnRemove      context.CancelFunc
+	honorContext        bool
+	generateErr         error
+	removedNames        []string
 }
 
 func (j *fakeJITSource) Generate(_ context.Context, name string) (JITRunner, error) {
 	j.nextID++
+	if j.cancelAfterGenerate != nil {
+		j.cancelAfterGenerate()
+	}
+	if j.generateErr != nil {
+		return JITRunner{}, j.generateErr
+	}
 	return JITRunner{Config: "jit-" + name, ServerID: j.nextID}, nil
 }
 
-func (j *fakeJITSource) Remove(_ context.Context, serverID int64) error {
+func (j *fakeJITSource) Remove(ctx context.Context, serverID int64) error {
+	if j.cancelOnRemove != nil {
+		j.cancelOnRemove()
+	}
+	if j.honorContext && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	j.removed = append(j.removed, serverID)
 	return nil
 }
 
-type fakeRuntime struct {
-	started  []Runner
-	removed  []string
-	exits    map[string]chan error
-	startErr error
+func (j *fakeJITSource) RemoveByName(_ context.Context, name string) error {
+	j.removedNames = append(j.removedNames, name)
+	return nil
 }
 
-func (r *fakeRuntime) Start(_ context.Context, runner Runner) (<-chan error, error) {
+type fakeRuntime struct {
+	started      []Runner
+	removed      []string
+	exits        map[string]chan error
+	startErr     error
+	honorContext bool
+}
+
+func (r *fakeRuntime) Start(ctx context.Context, runner Runner) (<-chan error, error) {
+	if r.honorContext && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if r.startErr != nil {
 		return nil, r.startErr
 	}
@@ -261,7 +348,10 @@ func (r *fakeRuntime) Start(_ context.Context, runner Runner) (<-chan error, err
 	return exit, nil
 }
 
-func (r *fakeRuntime) Remove(_ context.Context, name string) error {
+func (r *fakeRuntime) Remove(ctx context.Context, name string) error {
+	if r.honorContext && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	r.removed = append(r.removed, name)
 	return nil
 }

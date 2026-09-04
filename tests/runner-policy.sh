@@ -25,6 +25,11 @@ for setting in \
   grep -qxF "$setting" "$runner_unit"
 done
 
+# A network outage must not permanently trip systemd's start limiter. The
+# daemon is unattended and may boot before the uplink is usable.
+grep -qxF 'StartLimitIntervalSec=0' "$runner_unit"
+grep -qxF 'Restart=on-failure' "$runner_unit"
+
 for setting in 'CPUQuota=800%' 'MemoryHigh=32G' 'MemoryMax=40G'; do
   grep -qxF "$setting" "$runner_slice"
 done
