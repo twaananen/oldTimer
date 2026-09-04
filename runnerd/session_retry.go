@@ -91,13 +91,19 @@ func linkedContext(request, lifecycle context.Context) (context.Context, context
 
 func isTransientNetworkError(err error) bool {
 	var networkErr net.Error
-	return errors.As(err, &networkErr) ||
-		errors.Is(err, context.DeadlineExceeded) ||
+	if errors.As(err, &networkErr) && (networkErr.Timeout() || networkErr.Temporary()) {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded) ||
 		errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.EPIPE) ||
 		errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.ECONNRESET) ||
-		errors.Is(err, syscall.ENETUNREACH)
+		errors.Is(err, syscall.ENETDOWN) ||
+		errors.Is(err, syscall.ENETUNREACH) ||
+		errors.Is(err, syscall.EHOSTUNREACH)
 }
 
 func waitForRetry(ctx context.Context, delay time.Duration) error {

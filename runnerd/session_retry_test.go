@@ -53,7 +53,7 @@ func TestRetryingSessionClientPreservesSessionAcrossNetworkFailures(t *testing.T
 }
 
 func TestRetryingSessionClientReturnsPermanentFailure(t *testing.T) {
-	wantErr := errors.New("invalid message")
+	wantErr := &net.DNSError{Err: "no such host", Name: "broker.actions.githubusercontent.com", IsNotFound: true}
 	inner := &fakeSessionClient{getErrors: []error{wantErr}}
 	client := newRetryingSessionClient(context.Background(), inner, time.Second, func(context.Context, time.Duration) error {
 		t.Fatal("wait called for a permanent error")
