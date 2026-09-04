@@ -29,6 +29,14 @@ done
 # daemon is unattended and may boot before the uplink is usable.
 grep -qxF 'StartLimitIntervalSec=0' "$runner_unit"
 grep -qxF 'Restart=on-failure' "$runner_unit"
+grep -qxF 'ProtectSystem=strict' "$host_setup_unit"
+grep -qxF 'ReadWritePaths=/etc /run/lock' "$host_setup_unit"
+for command in \
+  'cp --attributes-only --preserve=all -- "$file" "$temporary"' \
+  'sync -f "$temporary"' \
+  'mv -fT -- "$temporary" "$file"'; do
+  grep -qxF "    $command" "$host_setup"
+done
 
 for setting in 'CPUQuota=1200%' 'MemoryHigh=48G' 'MemoryMax=64G' 'TasksMax=27000'; do
   grep -qxF "$setting" "$runner_slice"
@@ -225,12 +233,20 @@ test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1
 
 printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subuid_file"
 printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subgid_file"
+chmod 0640 "$subuid_file"
+chmod 0600 "$subgid_file"
+subuid_inode=$(stat -c %i "$subuid_file")
+subgid_inode=$(stat -c %i "$subgid_file")
 AEONS_SUBUID_FILE="$subuid_file" \
 AEONS_SUBGID_FILE="$subgid_file" \
 AEONS_SUBID_LOCK_FILE="$lock_file" \
   "$host_setup"
 test "$(grep -cxF 'aeons-ci:589824:98304' "$subuid_file")" = 1
 test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1
+test "$(stat -c %i "$subuid_file")" != "$subuid_inode"
+test "$(stat -c %i "$subgid_file")" != "$subgid_inode"
+test "$(stat -c %a "$subuid_file")" = 640
+test "$(stat -c %a "$subgid_file")" = 600
 
 printf 'other:600000:1024\n' >"$subuid_file"
 printf 'other:600000:1024\n' >"$subgid_file"

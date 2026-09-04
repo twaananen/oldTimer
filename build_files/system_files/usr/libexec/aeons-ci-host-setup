@@ -11,6 +11,12 @@ range_end=$((range_start + range_size))
 entry="$user:$range_start:$range_size"
 legacy_entry="$user:$range_start:65536"
 subid_files=("$subuid_file" "$subgid_file")
+temporary_files=()
+
+cleanup() {
+    rm -f -- "${temporary_files[@]}"
+}
+trap cleanup EXIT
 
 exec 9>"$lock_file"
 flock 9
@@ -43,15 +49,29 @@ preflight() {
     fi
 }
 
+replace_legacy() {
+    local file=$1 directory base temporary
+
+    directory=$(dirname -- "$file")
+    base=$(basename -- "$file")
+    temporary=$(mktemp --tmpdir="$directory" ".$base.aeons-ci.XXXXXX")
+    temporary_files+=("$temporary")
+    cp --attributes-only --preserve=all -- "$file" "$temporary"
+    awk -v legacy="$legacy_entry" -v replacement="$entry" \
+        '{ print $0 == legacy ? replacement : $0 }' "$file" >"$temporary"
+    preflight "$temporary"
+    sync -f "$temporary"
+    mv -fT -- "$temporary" "$file"
+    sync -f "$file"
+}
+
 for file in "${subid_files[@]}"; do
     preflight "$file"
 done
 
 for file in "${subid_files[@]}"; do
     if grep -qxF "$legacy_entry" "$file"; then
-        contents=$(awk -v legacy="$legacy_entry" -v replacement="$entry" \
-            '{ print $0 == legacy ? replacement : $0 }' "$file")
-        printf '%s\n' "$contents" >"$file"
+        replace_legacy "$file"
     else
         grep -qxF "$entry" "$file" || printf '%s\n' "$entry" >>"$file"
     fi
