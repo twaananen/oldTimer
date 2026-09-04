@@ -97,6 +97,7 @@ func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, desired int) (int
 		if err != nil {
 			return len(s.runners), fmt.Errorf("generate JIT config: %w", err)
 		}
+		s.runners[name] = activeRunner{serverID: jitRunner.ServerID}
 		exit, err := s.runtime.Start(ctx, Runner{Name: name, JITConfig: jitRunner.Config})
 		jitRunner.Config = ""
 		if err != nil {
@@ -104,6 +105,7 @@ func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, desired int) (int
 			if removeErr := s.jit.Remove(ctx, jitRunner.ServerID); removeErr != nil {
 				return len(s.runners), errors.Join(launchErr, fmt.Errorf("remove unstarted server runner %q: %w", name, removeErr))
 			}
+			delete(s.runners, name)
 			return len(s.runners), launchErr
 		}
 		s.runners[name] = activeRunner{serverID: jitRunner.ServerID, exit: exit}
@@ -147,10 +149,12 @@ func (s *Scaler) Shutdown(ctx context.Context) error {
 
 	var cleanupErr error
 	for _, name := range names {
-		runner := s.runners[name]
 		if err := s.runtime.Remove(ctx, name); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove local runner %q: %w", name, err))
 		}
+	}
+	for _, name := range names {
+		runner := s.runners[name]
 		if err := s.jit.Remove(ctx, runner.serverID); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove server runner %q: %w", name, err))
 		}
