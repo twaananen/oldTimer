@@ -14,6 +14,8 @@ type Config struct {
 	CgroupParent    string
 	ImageTag        string
 	MaxRunners      int
+	RunnerCPUs      string
+	RunnerMemory    string
 	AppClientID     string
 	InstallationID  int64
 	PrivateKey      string
@@ -26,7 +28,9 @@ func LoadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 		OwnerLabel:      "oldtimer",
 		CgroupParent:    getenv("AEONS_CGROUP_PARENT"),
 		ImageTag:        getenv("AEONS_RUNNERD_IMAGE_TAG"),
-		MaxRunners:      4,
+		MaxRunners:      12,
+		RunnerCPUs:      "2",
+		RunnerMemory:    "6g",
 		AppClientID:     getenv("AEONS_RUNNERD_APP_CLIENT_ID"),
 	}
 	if config.ImageTag == "" {

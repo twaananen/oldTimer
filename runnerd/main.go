@@ -40,8 +40,8 @@ func run(ctx context.Context) error {
 	pool := PodmanPool{
 		OwnerLabel:   config.OwnerLabel,
 		CgroupParent: config.CgroupParent,
-		CPUs:         "2",
-		Memory:       "8g",
+		CPUs:         config.RunnerCPUs,
+		Memory:       config.RunnerMemory,
 		PIDsLimit:    2048,
 		WorkSize:     "4g",
 		TmpfsSize:    "1g",

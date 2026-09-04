@@ -30,8 +30,15 @@ done
 grep -qxF 'StartLimitIntervalSec=0' "$runner_unit"
 grep -qxF 'Restart=on-failure' "$runner_unit"
 
-for setting in 'CPUQuota=800%' 'MemoryHigh=32G' 'MemoryMax=40G'; do
+for setting in 'CPUQuota=1200%' 'MemoryHigh=48G' 'MemoryMax=64G'; do
   grep -qxF "$setting" "$runner_slice"
+done
+for setting in \
+  'expected_slice_cpu_max="1200000 100000"' \
+  'expected_slice_memory_max=68719476736' \
+  'runner_memory=6g' \
+  'runner_memory_bytes=6442450944'; do
+  grep -qxF "$setting" "$acceptance_worker"
 done
 
 for forbidden in \
