@@ -73,6 +73,12 @@ cache while ensuring a base-image update cannot leave a stale tag in service.
 Runner jobs use a read-only root and bounded tmpfs, so their checkout, tools,
 and diagnostics disappear at exit without growing persistent container storage.
 
+The daemon resolves GitHub through the same two public resolvers used by runner
+containers and retains its scale-set message session while transient network
+requests retry. Boot-time failures are also retried without a systemd start
+limit. This prevents a transient uplink loss from replacing the active listener
+session and stranding its queued job events.
+
 The host acceptance program refuses to run while `aeons-runnerd` is active or
 when any owner-labelled container already exists. It starts a transient
 `aeons-ci` system service in `aeons-ci.slice` with delegation, creates exactly

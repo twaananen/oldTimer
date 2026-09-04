@@ -2,8 +2,7 @@
 Description=Aeons ephemeral GitHub Actions runner pool
 Requires=aeons-ci-firewall.service aeons-runner-image.service
 After=aeons-ci-firewall.service aeons-runner-image.service network-online.target
-StartLimitIntervalSec=10min
-StartLimitBurst=5
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

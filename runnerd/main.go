@@ -22,6 +22,7 @@ var (
 )
 
 func main() {
+	installRunnerResolver()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -116,7 +117,8 @@ func run(ctx context.Context) error {
 			slog.Error("runner registration cleanup failed", "error", err)
 		}
 	}()
-	messageListener, err := listener.New(session, listener.Config{
+	messageClient := newRetryingSessionClient(ctx, session, 15*time.Second, waitForRetry)
+	messageListener, err := listener.New(messageClient, listener.Config{
 		ScaleSetID: scaleSet.ID,
 		MaxRunners: config.MaxRunners,
 		Logger:     slog.Default().WithGroup("listener"),
