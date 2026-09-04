@@ -15,6 +15,7 @@ acceptance="$system_root/usr/libexec/aeons-runner-host-acceptance"
 acceptance_worker="$system_root/usr/libexec/aeons-runner-host-acceptance-worker"
 cgroup_launcher="$system_root/usr/libexec/aeons-cgroup-supervisor-launch"
 host_setup="$system_root/usr/libexec/aeons-ci-host-setup"
+shadow_lock="$system_root/usr/libexec/aeons-shadow-lock"
 host_isolation="$system_root/usr/lib/aeons-ci/host-isolation.sh"
 
 for setting in \
@@ -37,6 +38,9 @@ for command in \
   'mv -fT -- "$temporary" "$file"'; do
   grep -qxF "    $command" "$host_setup"
 done
+grep -qxF 'shadow_lock_helper=${AEONS_SHADOW_LOCK_HELPER:-/usr/libexec/aeons-shadow-lock}' "$host_setup"
+grep -qxF '    exec "$shadow_lock_helper" "$0" "$@"' "$host_setup"
+grep -qF 'libc.lckpwdf()' "$shadow_lock"
 
 for setting in 'CPUQuota=1200%' 'MemoryHigh=48G' 'MemoryMax=64G' 'TasksMax=27000'; do
   grep -qxF "$setting" "$runner_slice"
@@ -108,6 +112,7 @@ grep -qF 'nameserver 9.9.9.9' "$system_root/usr/lib/aeons-ci/resolv.conf"
 
 bash -n "$system_root/usr/libexec/aeons-runner-image-ensure"
 bash -n "$host_setup"
+python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$shadow_lock"
 bash -n "$acceptance"
 bash -n "$acceptance_worker"
 bash -n "$cgroup_launcher"
@@ -220,6 +225,8 @@ trap 'rm -rf -- "$subid_test_root"' EXIT
 subuid_file="$subid_test_root/subuid"
 subgid_file="$subid_test_root/subgid"
 lock_file="$subid_test_root/lock"
+export AEONS_SHADOW_LOCK_HELPER="$shadow_lock"
+export AEONS_PWD_LOCK_FILE="$subid_test_root/pwd.lock"
 printf 'tommi:524288:65536\n' >"$subuid_file"
 printf 'tommi:524288:65536\n' >"$subgid_file"
 for attempt in 1 2; do
@@ -250,16 +257,36 @@ test "$(stat -c %a "$subgid_file")" = 600
 
 printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subuid_file"
 printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subgid_file"
-printf '%s\n' "$$" >"$subuid_file.lock"
+pwd_lock=$AEONS_PWD_LOCK_FILE
+lock_ready="$subid_test_root/lock-ready"
+lock_release="$subid_test_root/lock-release"
+timeout 5 python3 - "$pwd_lock" "$lock_ready" "$lock_release" <<'PY' &
+import fcntl
+import os
+from pathlib import Path
+import sys
+import time
+
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT, 0o600)
+fcntl.lockf(fd, fcntl.LOCK_EX)
+Path(sys.argv[2]).touch()
+while not Path(sys.argv[3]).exists():
+    time.sleep(0.01)
+PY
+lock_holder_pid=$!
+while [[ ! -e $lock_ready ]]; do sleep 0.01; done
 AEONS_SUBUID_FILE="$subuid_file" \
 AEONS_SUBGID_FILE="$subgid_file" \
 AEONS_SUBID_LOCK_FILE="$lock_file" \
+AEONS_PWD_LOCK_FILE="$pwd_lock" \
+AEONS_SHADOW_LOCK_HELPER="$shadow_lock" \
   "$host_setup" &
 host_setup_pid=$!
 sleep 0.2
 kill -0 "$host_setup_pid"
 grep -qxF 'aeons-ci:589824:65536' "$subuid_file"
-rm -f -- "$subuid_file.lock"
+touch "$lock_release"
+wait "$lock_holder_pid"
 wait "$host_setup_pid"
 test "$(grep -cxF 'aeons-ci:589824:98304' "$subuid_file")" = 1
 test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1

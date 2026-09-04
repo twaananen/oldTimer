@@ -4,6 +4,7 @@ set -euo pipefail
 subuid_file=${AEONS_SUBUID_FILE:-/etc/subuid}
 subgid_file=${AEONS_SUBGID_FILE:-/etc/subgid}
 lock_file=${AEONS_SUBID_LOCK_FILE:-/run/lock/aeons-ci-host-setup.lock}
+shadow_lock_helper=${AEONS_SHADOW_LOCK_HELPER:-/usr/libexec/aeons-shadow-lock}
 user=aeons-ci
 range_start=589824
 range_size=98304
@@ -12,74 +13,19 @@ entry="$user:$range_start:$range_size"
 legacy_entry="$user:$range_start:65536"
 subid_files=("$subuid_file" "$subgid_file")
 temporary_files=()
-subid_locks=()
 
 cleanup() {
-    local index lock owner
-
-    for ((index = ${#subid_locks[@]} - 1; index >= 0; index--)); do
-        lock=${subid_locks[$index]}
-        [[ -r $lock ]] || continue
-        owner=$(<"$lock")
-        if [[ $owner == "$$" ]]; then
-            rm -f -- "$lock"
-        fi
-    done
     rm -f -- "${temporary_files[@]}"
 }
 trap cleanup EXIT
 
+if [[ ${AEONS_SHADOW_LOCK_HELD:-} != 1 ]]; then
+    export AEONS_SHADOW_LOCK_HELD=1
+    exec "$shadow_lock_helper" "$0" "$@"
+fi
+
 exec 9>"$lock_file"
 flock 9
-
-# Match shadow-utils' commonio lock protocol so useradd/usermod and this
-# migration cannot replace one another's subordinate-ID updates.
-acquire_subid_lock() {
-    local file=$1 lock owner_file owner links attempt
-
-    lock="$file.lock"
-    owner_file="$file.$$"
-    temporary_files+=("$owner_file")
-    (umask 077; printf '%s\n' "$$" >"$owner_file")
-
-    for ((attempt = 1; attempt <= 15; attempt++)); do
-        if ln -- "$owner_file" "$lock" 2>/dev/null; then
-            links=$(stat -c %h "$owner_file")
-            if [[ $links != 2 ]]; then
-                echo "invalid subordinate-ID lock link count for $lock: $links" >&2
-                rm -f -- "$lock"
-                return 1
-            fi
-            rm -f -- "$owner_file"
-            subid_locks+=("$lock")
-            return 0
-        fi
-
-        if [[ ! -e $lock ]]; then
-            echo "cannot create subordinate-ID lock: $lock" >&2
-            return 1
-        fi
-        owner=$(<"$lock") || true
-        if [[ ! $owner =~ ^[0-9]+$ ]]; then
-            echo "invalid subordinate-ID lock owner in $lock" >&2
-            return 1
-        fi
-        if ! kill -0 "$owner" 2>/dev/null; then
-            rm -f -- "$lock"
-            continue
-        fi
-        if (( attempt < 15 )); then
-            sleep 1
-        fi
-    done
-
-    echo "cannot lock subordinate-ID file: $file" >&2
-    return 1
-}
-
-for file in "${subid_files[@]}"; do
-    acquire_subid_lock "$file"
-done
 
 preflight() {
     local file=$1 matches overlap
