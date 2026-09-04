@@ -12,4 +12,4 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=strict
-ReadWritePaths=/etc/subuid /etc/subgid /run/lock
+ReadWritePaths=/etc /run/lock

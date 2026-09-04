@@ -3,7 +3,7 @@ oldtimer is an OCI image building on top of Bazzite/ublue-os images.
 
 ## Aeons GitHub Actions runners
 
-The image contains an opt-in pool of four ephemeral, repository-scoped Aeons
+The image contains an opt-in pool of twelve ephemeral, repository-scoped Aeons
 runners. `aeons-runnerd` uses the official GitHub scale-set client and launches
 one attached rootless Podman container per job under the dedicated `aeons-ci`
 account. It never uses Tommi's Podman storage, the host Docker daemon, k3d, or a
@@ -85,8 +85,10 @@ when any owner-labelled container already exists. It starts a transient
 four fixed-name probes with the production isolation and resource flags, checks
 their cgroup ancestry and the following contract, then removes only those names:
 
-- Four concurrent containers enforce 2 CPUs, 8 GiB, 2,048 PIDs, and the
-  aggregate slice remains below 8 CPUs/40 GiB.
+- Four concurrent probes enforce the production per-runner limits of 2 CPUs,
+  6 GiB, and 2,048 PIDs. The twelve-runner aggregate slice is capped at 12
+  CPUs/64 GiB and 27,000 tasks, with memory pressure beginning at 48 GiB. The
+  host setup reserves 98,304 subordinate IDs for twelve disjoint namespaces.
 - The worker remains in one stable `supervisor` cgroup while all four payloads
   occupy distinct sibling cgroups; cleanup removes every payload cgroup.
 - Public DNS and HTTPS work; container-local loopback works.

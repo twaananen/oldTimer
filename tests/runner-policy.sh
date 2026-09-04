@@ -15,6 +15,7 @@ acceptance="$system_root/usr/libexec/aeons-runner-host-acceptance"
 acceptance_worker="$system_root/usr/libexec/aeons-runner-host-acceptance-worker"
 cgroup_launcher="$system_root/usr/libexec/aeons-cgroup-supervisor-launch"
 host_setup="$system_root/usr/libexec/aeons-ci-host-setup"
+shadow_lock="$system_root/usr/libexec/aeons-shadow-lock"
 host_isolation="$system_root/usr/lib/aeons-ci/host-isolation.sh"
 
 for setting in \
@@ -29,9 +30,29 @@ done
 # daemon is unattended and may boot before the uplink is usable.
 grep -qxF 'StartLimitIntervalSec=0' "$runner_unit"
 grep -qxF 'Restart=on-failure' "$runner_unit"
+grep -qxF 'ProtectSystem=strict' "$host_setup_unit"
+grep -qxF 'ReadWritePaths=/etc /run/lock' "$host_setup_unit"
+for command in \
+  'cp --attributes-only --preserve=all -- "$file" "$temporary"' \
+  'sync -f "$temporary"' \
+  'mv -fT -- "$temporary" "$file"'; do
+  grep -qxF "    $command" "$host_setup"
+done
+grep -qxF 'shadow_lock_helper=${AEONS_SHADOW_LOCK_HELPER:-/usr/libexec/aeons-shadow-lock}' "$host_setup"
+grep -qxF '    exec "$shadow_lock_helper" "$0" "$@"' "$host_setup"
+grep -qF 'libc.lckpwdf()' "$shadow_lock"
 
-for setting in 'CPUQuota=800%' 'MemoryHigh=32G' 'MemoryMax=40G'; do
+for setting in 'CPUQuota=1200%' 'MemoryHigh=48G' 'MemoryMax=64G' 'TasksMax=27000'; do
   grep -qxF "$setting" "$runner_slice"
+done
+for setting in \
+  'expected_slice_cpu_max="1200000 100000"' \
+  'expected_slice_memory_high=51539607552' \
+  'expected_slice_memory_max=68719476736' \
+  'expected_slice_tasks_max=27000' \
+  'runner_memory=6g' \
+  'runner_memory_bytes=6442450944'; do
+  grep -qxF "$setting" "$acceptance_worker"
 done
 
 for forbidden in \
@@ -91,6 +112,7 @@ grep -qF 'nameserver 9.9.9.9' "$system_root/usr/lib/aeons-ci/resolv.conf"
 
 bash -n "$system_root/usr/libexec/aeons-runner-image-ensure"
 bash -n "$host_setup"
+python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$shadow_lock"
 bash -n "$acceptance"
 bash -n "$acceptance_worker"
 bash -n "$cgroup_launcher"
@@ -203,6 +225,8 @@ trap 'rm -rf -- "$subid_test_root"' EXIT
 subuid_file="$subid_test_root/subuid"
 subgid_file="$subid_test_root/subgid"
 lock_file="$subid_test_root/lock"
+export AEONS_SHADOW_LOCK_HELPER="$shadow_lock"
+export AEONS_PWD_LOCK_FILE="$subid_test_root/pwd.lock"
 printf 'tommi:524288:65536\n' >"$subuid_file"
 printf 'tommi:524288:65536\n' >"$subgid_file"
 for attempt in 1 2; do
@@ -211,8 +235,61 @@ for attempt in 1 2; do
   AEONS_SUBID_LOCK_FILE="$lock_file" \
     "$host_setup"
 done
-test "$(grep -cxF 'aeons-ci:589824:65536' "$subuid_file")" = 1
-test "$(grep -cxF 'aeons-ci:589824:65536' "$subgid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subuid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1
+
+printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subuid_file"
+printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subgid_file"
+chmod 0640 "$subuid_file"
+chmod 0600 "$subgid_file"
+subuid_inode=$(stat -c %i "$subuid_file")
+subgid_inode=$(stat -c %i "$subgid_file")
+AEONS_SUBUID_FILE="$subuid_file" \
+AEONS_SUBGID_FILE="$subgid_file" \
+AEONS_SUBID_LOCK_FILE="$lock_file" \
+  "$host_setup"
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subuid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1
+test "$(stat -c %i "$subuid_file")" != "$subuid_inode"
+test "$(stat -c %i "$subgid_file")" != "$subgid_inode"
+test "$(stat -c %a "$subuid_file")" = 640
+test "$(stat -c %a "$subgid_file")" = 600
+
+printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subuid_file"
+printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subgid_file"
+pwd_lock=$AEONS_PWD_LOCK_FILE
+lock_ready="$subid_test_root/lock-ready"
+lock_release="$subid_test_root/lock-release"
+timeout 5 python3 - "$pwd_lock" "$lock_ready" "$lock_release" <<'PY' &
+import fcntl
+import os
+from pathlib import Path
+import sys
+import time
+
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT, 0o600)
+fcntl.lockf(fd, fcntl.LOCK_EX)
+Path(sys.argv[2]).touch()
+while not Path(sys.argv[3]).exists():
+    time.sleep(0.01)
+PY
+lock_holder_pid=$!
+while [[ ! -e $lock_ready ]]; do sleep 0.01; done
+AEONS_SUBUID_FILE="$subuid_file" \
+AEONS_SUBGID_FILE="$subgid_file" \
+AEONS_SUBID_LOCK_FILE="$lock_file" \
+AEONS_PWD_LOCK_FILE="$pwd_lock" \
+AEONS_SHADOW_LOCK_HELPER="$shadow_lock" \
+  "$host_setup" &
+host_setup_pid=$!
+sleep 0.2
+kill -0 "$host_setup_pid"
+grep -qxF 'aeons-ci:589824:65536' "$subuid_file"
+touch "$lock_release"
+wait "$lock_holder_pid"
+wait "$host_setup_pid"
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subuid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1
 
 printf 'other:600000:1024\n' >"$subuid_file"
 printf 'other:600000:1024\n' >"$subgid_file"
@@ -226,8 +303,8 @@ fi
 test "$(wc -l <"$subuid_file")" = 1
 test "$(wc -l <"$subgid_file")" = 1
 
-printf 'aeons-ci:589824:65536\nother:600000:1024\n' >"$subuid_file"
-printf 'aeons-ci:589824:65536\nother:600000:1024\n' >"$subgid_file"
+printf 'aeons-ci:589824:65536\nother:670000:1024\n' >"$subuid_file"
+printf 'aeons-ci:589824:65536\nother:670000:1024\n' >"$subgid_file"
 if AEONS_SUBUID_FILE="$subuid_file" \
   AEONS_SUBGID_FILE="$subgid_file" \
   AEONS_SUBID_LOCK_FILE="$lock_file" \

@@ -15,6 +15,12 @@ fi
 expected_cgroup="$slice_cgroup/aeons-runner-host-acceptance-worker.service"
 expected_supervisor="$expected_cgroup/supervisor"
 unit_root="/sys/fs/cgroup$expected_cgroup"
+expected_slice_cpu_max="1200000 100000"
+expected_slice_memory_high=51539607552
+expected_slice_memory_max=68719476736
+expected_slice_tasks_max=27000
+runner_memory=6g
+runner_memory_bytes=6442450944
 worker_cgroup=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
 if [[ $worker_cgroup != "$expected_supervisor" ]]; then
     echo "worker is outside its stable supervisor cgroup: $worker_cgroup" >&2
@@ -24,8 +30,10 @@ if [[ ${AEONS_CGROUP_PARENT:-} != "$expected_cgroup" ]]; then
     echo "worker has the wrong delegated cgroup parent: ${AEONS_CGROUP_PARENT:-unset}" >&2
     exit 1
 fi
-grep -qx 42949672960 "/sys/fs/cgroup$slice_cgroup/memory.max"
-grep -qx '800000 100000' "/sys/fs/cgroup$slice_cgroup/cpu.max"
+grep -qx "$expected_slice_memory_max" "/sys/fs/cgroup$slice_cgroup/memory.max"
+grep -qx "$expected_slice_memory_high" "/sys/fs/cgroup$slice_cgroup/memory.high"
+grep -qx "$expected_slice_cpu_max" "/sys/fs/cgroup$slice_cgroup/cpu.max"
+grep -qx "$expected_slice_tasks_max" "/sys/fs/cgroup$slice_cgroup/pids.max"
 
 source /usr/lib/aeons-ci/runner.env
 : "${AEONS_RUNNERD_IMAGE_TAG:?}"
@@ -43,8 +51,8 @@ common_args=(
     --cgroups=enabled
     --cgroup-parent="$AEONS_CGROUP_PARENT"
     --cpus=2
-    --memory=8g
-    --memory-swap=8g
+    --memory="$runner_memory"
+    --memory-swap="$runner_memory"
     --pids-limit=2048
     --cap-drop=all
     --security-opt=no-new-privileges
@@ -107,7 +115,7 @@ for name in "${names[@]}"; do
     fi
     seen_container_cgroups[$container_cgroup]=$name
     grep -qx '200000 100000' "/sys/fs/cgroup$container_cgroup/cpu.max"
-    grep -qx 8589934592 "/sys/fs/cgroup$container_cgroup/memory.max"
+    grep -qx "$runner_memory_bytes" "/sys/fs/cgroup$container_cgroup/memory.max"
     grep -qx 0 "/sys/fs/cgroup$container_cgroup/memory.swap.max"
     grep -qx 2048 "/sys/fs/cgroup$container_cgroup/pids.max"
 done
@@ -132,7 +140,7 @@ probe='set -euo pipefail
 test "$(id -u)" = 1001
 grep -Eq "^CapEff:[[:space:]]+0+$" /proc/self/status
 grep -Eq "^NoNewPrivs:[[:space:]]+1$" /proc/self/status
-grep -qx 8589934592 /sys/fs/cgroup/memory.max
+grep -qx 6442450944 /sys/fs/cgroup/memory.max
 grep -qx 2048 /sys/fs/cgroup/pids.max
 grep -qx "200000 100000" /sys/fs/cgroup/cpu.max
 awk '\''$2 == "/" { split($4, options, ","); for (i in options) if (options[i] == "ro") found=1 } END { exit found ? 0 : 1 }'\'' /proc/mounts

@@ -1,0 +1,39 @@
+#!/usr/bin/python3
+"""Run one command while holding shadow-utils' global account-file lock."""
+
+import ctypes
+import fcntl
+import os
+import subprocess
+import sys
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("usage: aeons-shadow-lock COMMAND [ARG ...]", file=sys.stderr)
+        return 2
+
+    test_lock = os.environ.get("AEONS_PWD_LOCK_FILE")
+    lock_fd = None
+    libc = None
+    if test_lock:
+        lock_fd = os.open(test_lock, os.O_WRONLY | os.O_CREAT, 0o600)
+        fcntl.lockf(lock_fd, fcntl.LOCK_EX)
+    else:
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.lckpwdf() != 0:
+            error = ctypes.get_errno()
+            print(f"cannot acquire shadow-utils account lock: {os.strerror(error)}", file=sys.stderr)
+            return 1
+
+    try:
+        return subprocess.run(sys.argv[1:], check=False).returncode
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+        elif libc is not None:
+            libc.ulckpwdf()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
