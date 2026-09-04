@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/actions/scaleset"
 )
@@ -17,6 +18,35 @@ type ScaleSetJITSource struct {
 	Client     JITClient
 	ScaleSetID int
 }
+
+type retryingJITClient struct {
+	inner      JITClient
+	retryDelay time.Duration
+	wait       func(context.Context, time.Duration) error
+}
+
+func newRetryingJITClient(
+	inner JITClient,
+	retryDelay time.Duration,
+	wait func(context.Context, time.Duration) error,
+) *retryingJITClient {
+	return &retryingJITClient{inner: inner, retryDelay: retryDelay, wait: wait}
+}
+
+func (c *retryingJITClient) GenerateJitRunnerConfig(ctx context.Context, setting *scaleset.RunnerScaleSetJitRunnerSetting, scaleSetID int) (*scaleset.RunnerScaleSetJitRunnerConfig, error) {
+	return retryNetworkCall(ctx, networkRetry{lifecycle: ctx, retryDelay: c.retryDelay, wait: c.wait}, "generate JIT runner config", func(callCtx context.Context) (*scaleset.RunnerScaleSetJitRunnerConfig, error) {
+		return c.inner.GenerateJitRunnerConfig(callCtx, setting, scaleSetID)
+	})
+}
+
+func (c *retryingJITClient) RemoveRunner(ctx context.Context, serverID int64) error {
+	_, err := retryNetworkCall(ctx, networkRetry{lifecycle: ctx, retryDelay: c.retryDelay, wait: c.wait}, "remove JIT runner", func(callCtx context.Context) (struct{}, error) {
+		return struct{}{}, c.inner.RemoveRunner(callCtx, serverID)
+	})
+	return err
+}
+
+var _ JITClient = (*retryingJITClient)(nil)
 
 func (s ScaleSetJITSource) Generate(ctx context.Context, name string) (JITRunner, error) {
 	jit, err := s.Client.GenerateJitRunnerConfig(ctx, &scaleset.RunnerScaleSetJitRunnerSetting{Name: name}, s.ScaleSetID)

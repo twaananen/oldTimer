@@ -104,9 +104,10 @@ func run(ctx context.Context) error {
 		}
 	}()
 
+	jitClient := newRetryingJITClient(client, 15*time.Second, waitForRetry)
 	scaler := NewScaler(
 		config.MaxRunners,
-		ScaleSetJITSource{Client: client, ScaleSetID: scaleSet.ID},
+		ScaleSetJITSource{Client: jitClient, ScaleSetID: scaleSet.ID},
 		pool,
 		newRunnerName,
 	)
@@ -128,7 +129,7 @@ func run(ctx context.Context) error {
 	}
 
 	slog.Info("runner daemon ready", "scale_set", config.ScaleSetName, "max_runners", config.MaxRunners, "image", imageID)
-	if err := messageListener.Run(ctx, scaler); err != nil && !errors.Is(err, context.Canceled) {
+	if err := messageListener.Run(ctx, newLifecycleScaler(ctx, scaler)); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("run scale-set listener: %w", err)
 	}
 	return nil
