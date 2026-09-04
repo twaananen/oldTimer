@@ -30,12 +30,14 @@ done
 grep -qxF 'StartLimitIntervalSec=0' "$runner_unit"
 grep -qxF 'Restart=on-failure' "$runner_unit"
 
-for setting in 'CPUQuota=1200%' 'MemoryHigh=48G' 'MemoryMax=64G'; do
+for setting in 'CPUQuota=1200%' 'MemoryHigh=48G' 'MemoryMax=64G' 'TasksMax=27000'; do
   grep -qxF "$setting" "$runner_slice"
 done
 for setting in \
   'expected_slice_cpu_max="1200000 100000"' \
+  'expected_slice_memory_high=51539607552' \
   'expected_slice_memory_max=68719476736' \
+  'expected_slice_tasks_max=27000' \
   'runner_memory=6g' \
   'runner_memory_bytes=6442450944'; do
   grep -qxF "$setting" "$acceptance_worker"
@@ -218,8 +220,17 @@ for attempt in 1 2; do
   AEONS_SUBID_LOCK_FILE="$lock_file" \
     "$host_setup"
 done
-test "$(grep -cxF 'aeons-ci:589824:65536' "$subuid_file")" = 1
-test "$(grep -cxF 'aeons-ci:589824:65536' "$subgid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subuid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1
+
+printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subuid_file"
+printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subgid_file"
+AEONS_SUBUID_FILE="$subuid_file" \
+AEONS_SUBGID_FILE="$subgid_file" \
+AEONS_SUBID_LOCK_FILE="$lock_file" \
+  "$host_setup"
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subuid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1
 
 printf 'other:600000:1024\n' >"$subuid_file"
 printf 'other:600000:1024\n' >"$subgid_file"
@@ -233,8 +244,8 @@ fi
 test "$(wc -l <"$subuid_file")" = 1
 test "$(wc -l <"$subgid_file")" = 1
 
-printf 'aeons-ci:589824:65536\nother:600000:1024\n' >"$subuid_file"
-printf 'aeons-ci:589824:65536\nother:600000:1024\n' >"$subgid_file"
+printf 'aeons-ci:589824:65536\nother:670000:1024\n' >"$subuid_file"
+printf 'aeons-ci:589824:65536\nother:670000:1024\n' >"$subgid_file"
 if AEONS_SUBUID_FILE="$subuid_file" \
   AEONS_SUBGID_FILE="$subgid_file" \
   AEONS_SUBID_LOCK_FILE="$lock_file" \

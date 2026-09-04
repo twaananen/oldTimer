@@ -87,7 +87,8 @@ their cgroup ancestry and the following contract, then removes only those names:
 
 - Four concurrent probes enforce the production per-runner limits of 2 CPUs,
   6 GiB, and 2,048 PIDs. The twelve-runner aggregate slice is capped at 12
-  CPUs/64 GiB, with memory pressure beginning at 48 GiB.
+  CPUs/64 GiB and 27,000 tasks, with memory pressure beginning at 48 GiB. The
+  host setup reserves 98,304 subordinate IDs for twelve disjoint namespaces.
 - The worker remains in one stable `supervisor` cgroup while all four payloads
   occupy distinct sibling cgroups; cleanup removes every payload cgroup.
 - Public DNS and HTTPS work; container-local loopback works.

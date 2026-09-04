@@ -7,4 +7,4 @@ CPUWeight=10
 IOWeight=10
 MemoryHigh=48G
 MemoryMax=64G
-TasksMax=9000
+TasksMax=27000

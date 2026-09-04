@@ -6,9 +6,10 @@ subgid_file=${AEONS_SUBGID_FILE:-/etc/subgid}
 lock_file=${AEONS_SUBID_LOCK_FILE:-/run/lock/aeons-ci-host-setup.lock}
 user=aeons-ci
 range_start=589824
-range_size=65536
+range_size=98304
 range_end=$((range_start + range_size))
 entry="$user:$range_start:$range_size"
+legacy_entry="$user:$range_start:65536"
 subid_files=("$subuid_file" "$subgid_file")
 
 exec 9>"$lock_file"
@@ -24,14 +25,14 @@ preflight() {
 
     matches=$(grep -c "^$user:" "$file" || true)
     if (( matches > 0 )); then
-        if (( matches != 1 )) || ! grep -qxF "$entry" "$file"; then
+        if (( matches != 1 )) || { ! grep -qxF "$entry" "$file" && ! grep -qxF "$legacy_entry" "$file"; }; then
             echo "unexpected aeons-ci subordinate-ID allocation in $file" >&2
             return 1
         fi
     fi
 
-    overlap=$(awk -F: -v expected="$entry" -v first="$range_start" -v last="$range_end" '
-        $0 != expected && NF >= 3 && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {
+    overlap=$(awk -F: -v expected="$entry" -v legacy="$legacy_entry" -v first="$range_start" -v last="$range_end" '
+        $0 != expected && $0 != legacy && NF >= 3 && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {
             entry_last = $2 + $3
             if ($2 < last && first < entry_last) print $0
         }
@@ -47,5 +48,11 @@ for file in "${subid_files[@]}"; do
 done
 
 for file in "${subid_files[@]}"; do
-    grep -qxF "$entry" "$file" || printf '%s\n' "$entry" >>"$file"
+    if grep -qxF "$legacy_entry" "$file"; then
+        contents=$(awk -v legacy="$legacy_entry" -v replacement="$entry" \
+            '{ print $0 == legacy ? replacement : $0 }' "$file")
+        printf '%s\n' "$contents" >"$file"
+    else
+        grep -qxF "$entry" "$file" || printf '%s\n' "$entry" >>"$file"
+    fi
 done

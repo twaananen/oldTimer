@@ -16,7 +16,9 @@ expected_cgroup="$slice_cgroup/aeons-runner-host-acceptance-worker.service"
 expected_supervisor="$expected_cgroup/supervisor"
 unit_root="/sys/fs/cgroup$expected_cgroup"
 expected_slice_cpu_max="1200000 100000"
+expected_slice_memory_high=51539607552
 expected_slice_memory_max=68719476736
+expected_slice_tasks_max=27000
 runner_memory=6g
 runner_memory_bytes=6442450944
 worker_cgroup=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
@@ -29,7 +31,9 @@ if [[ ${AEONS_CGROUP_PARENT:-} != "$expected_cgroup" ]]; then
     exit 1
 fi
 grep -qx "$expected_slice_memory_max" "/sys/fs/cgroup$slice_cgroup/memory.max"
+grep -qx "$expected_slice_memory_high" "/sys/fs/cgroup$slice_cgroup/memory.high"
 grep -qx "$expected_slice_cpu_max" "/sys/fs/cgroup$slice_cgroup/cpu.max"
+grep -qx "$expected_slice_tasks_max" "/sys/fs/cgroup$slice_cgroup/pids.max"
 
 source /usr/lib/aeons-ci/runner.env
 : "${AEONS_RUNNERD_IMAGE_TAG:?}"
