@@ -248,6 +248,22 @@ test "$(stat -c %i "$subgid_file")" != "$subgid_inode"
 test "$(stat -c %a "$subuid_file")" = 640
 test "$(stat -c %a "$subgid_file")" = 600
 
+printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subuid_file"
+printf 'tommi:524288:65536\naeons-ci:589824:65536\n' >"$subgid_file"
+printf '%s\n' "$$" >"$subuid_file.lock"
+AEONS_SUBUID_FILE="$subuid_file" \
+AEONS_SUBGID_FILE="$subgid_file" \
+AEONS_SUBID_LOCK_FILE="$lock_file" \
+  "$host_setup" &
+host_setup_pid=$!
+sleep 0.2
+kill -0 "$host_setup_pid"
+grep -qxF 'aeons-ci:589824:65536' "$subuid_file"
+rm -f -- "$subuid_file.lock"
+wait "$host_setup_pid"
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subuid_file")" = 1
+test "$(grep -cxF 'aeons-ci:589824:98304' "$subgid_file")" = 1
+
 printf 'other:600000:1024\n' >"$subuid_file"
 printf 'other:600000:1024\n' >"$subgid_file"
 if AEONS_SUBUID_FILE="$subuid_file" \
