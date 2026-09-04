@@ -11,6 +11,7 @@ import (
 
 type JITClient interface {
 	GenerateJitRunnerConfig(context.Context, *scaleset.RunnerScaleSetJitRunnerSetting, int) (*scaleset.RunnerScaleSetJitRunnerConfig, error)
+	GetRunnerByName(context.Context, string) (*scaleset.RunnerReference, error)
 	RemoveRunner(context.Context, int64) error
 }
 
@@ -34,8 +35,39 @@ func newRetryingJITClient(
 }
 
 func (c *retryingJITClient) GenerateJitRunnerConfig(ctx context.Context, setting *scaleset.RunnerScaleSetJitRunnerSetting, scaleSetID int) (*scaleset.RunnerScaleSetJitRunnerConfig, error) {
-	return retryNetworkCall(ctx, networkRetry{lifecycle: ctx, retryDelay: c.retryDelay, wait: c.wait}, "generate JIT runner config", func(callCtx context.Context) (*scaleset.RunnerScaleSetJitRunnerConfig, error) {
-		return c.inner.GenerateJitRunnerConfig(callCtx, setting, scaleSetID)
+	jit, err := c.inner.GenerateJitRunnerConfig(ctx, setting, scaleSetID)
+	if err == nil || !isTransientNetworkError(err) {
+		return jit, err
+	}
+
+	// Creation is not idempotent: a lost response may hide a registration that
+	// GitHub already accepted. Reconcile by the unique runner name instead of
+	// submitting the creation request a second time.
+	for observation := 0; observation < 2; observation++ {
+		runner, reconcileErr := retryNetworkCall(ctx, networkRetry{lifecycle: ctx, retryDelay: c.retryDelay, wait: c.wait}, "find ambiguous JIT runner", func(callCtx context.Context) (*scaleset.RunnerReference, error) {
+			return c.inner.GetRunnerByName(callCtx, setting.Name)
+		})
+		if reconcileErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("reconcile ambiguous JIT runner %q: %w", setting.Name, reconcileErr))
+		}
+		if runner != nil {
+			if removeErr := c.RemoveRunner(ctx, int64(runner.ID)); removeErr != nil {
+				return nil, errors.Join(err, fmt.Errorf("remove ambiguous JIT runner %q: %w", setting.Name, removeErr))
+			}
+			return nil, fmt.Errorf("reconciled ambiguous JIT runner %q: %w", setting.Name, err)
+		}
+		if observation == 0 {
+			if waitErr := c.wait(ctx, c.retryDelay); waitErr != nil {
+				return nil, errors.Join(err, waitErr)
+			}
+		}
+	}
+	return nil, err
+}
+
+func (c *retryingJITClient) GetRunnerByName(ctx context.Context, name string) (*scaleset.RunnerReference, error) {
+	return retryNetworkCall(ctx, networkRetry{lifecycle: ctx, retryDelay: c.retryDelay, wait: c.wait}, "get JIT runner by name", func(callCtx context.Context) (*scaleset.RunnerReference, error) {
+		return c.inner.GetRunnerByName(callCtx, name)
 	})
 }
 

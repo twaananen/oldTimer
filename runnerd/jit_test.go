@@ -30,12 +30,12 @@ func TestScaleSetJITSourcePreservesRunnerIDAndRemovalIsIdempotent(t *testing.T) 
 	}
 }
 
-func TestRetryingJITClientPreservesMessageSessionAcrossNetworkFailures(t *testing.T) {
+func TestRetryingJITClientReconcilesAmbiguousCreationWithoutRepeatingIt(t *testing.T) {
 	networkErr := &net.DNSError{Err: "network is unreachable", Name: "api.github.com", IsTemporary: true}
 	inner := &fakeJITClient{
 		expectedName:   "runner",
 		generateErrors: []error{networkErr},
-		removeErrors:   []error{networkErr},
+		foundRunner:    &scaleset.RunnerReference{ID: 123},
 	}
 	waits := 0
 	client := newRetryingJITClient(inner, time.Second, func(context.Context, time.Duration) error {
@@ -44,14 +44,28 @@ func TestRetryingJITClientPreservesMessageSessionAcrossNetworkFailures(t *testin
 	})
 	ctx := context.Background()
 
-	if _, err := client.GenerateJitRunnerConfig(ctx, &scaleset.RunnerScaleSetJitRunnerSetting{Name: "runner"}, 42); err != nil {
-		t.Fatalf("GenerateJitRunnerConfig returned an error: %v", err)
+	if _, err := client.GenerateJitRunnerConfig(ctx, &scaleset.RunnerScaleSetJitRunnerSetting{Name: "runner"}, 42); err == nil {
+		t.Fatal("GenerateJitRunnerConfig accepted an ambiguous creation")
 	}
-	if err := client.RemoveRunner(ctx, 123); err != nil {
+	if inner.generateCalls != 1 || inner.getCalls != 1 || inner.removeCalls != 1 || waits != 0 {
+		t.Fatalf("calls generate=%d get=%d remove=%d waits=%d, want 1/1/1/0", inner.generateCalls, inner.getCalls, inner.removeCalls, waits)
+	}
+}
+
+func TestRetryingJITClientRetriesIdempotentRemoval(t *testing.T) {
+	networkErr := &net.DNSError{Err: "network is unreachable", Name: "api.github.com", IsTemporary: true}
+	inner := &fakeJITClient{removeErrors: []error{networkErr}}
+	waits := 0
+	client := newRetryingJITClient(inner, time.Second, func(context.Context, time.Duration) error {
+		waits++
+		return nil
+	})
+
+	if err := client.RemoveRunner(context.Background(), 123); err != nil {
 		t.Fatalf("RemoveRunner returned an error: %v", err)
 	}
-	if inner.generateCalls != 2 || inner.removeCalls != 2 || waits != 2 {
-		t.Fatalf("calls generate=%d remove=%d waits=%d, want 2/2/2", inner.generateCalls, inner.removeCalls, waits)
+	if inner.removeCalls != 2 || waits != 1 {
+		t.Fatalf("remove calls=%d waits=%d, want 2/1", inner.removeCalls, waits)
 	}
 }
 
@@ -60,7 +74,9 @@ type fakeJITClient struct {
 	generateErrors []error
 	removeErrors   []error
 	removeErr      error
+	foundRunner    *scaleset.RunnerReference
 	generateCalls  int
+	getCalls       int
 	removeCalls    int
 }
 
@@ -78,6 +94,14 @@ func (c *fakeJITClient) GenerateJitRunnerConfig(_ context.Context, setting *scal
 		Runner:           &scaleset.RunnerReference{ID: 123},
 		EncodedJITConfig: "encoded-jit",
 	}, nil
+}
+
+func (c *fakeJITClient) GetRunnerByName(_ context.Context, name string) (*scaleset.RunnerReference, error) {
+	c.getCalls++
+	if name != c.expectedName {
+		return nil, fmt.Errorf("unexpected runner name")
+	}
+	return c.foundRunner, nil
 }
 
 func (c *fakeJITClient) RemoveRunner(_ context.Context, _ int64) error {
