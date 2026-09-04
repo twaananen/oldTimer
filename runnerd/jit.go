@@ -82,6 +82,9 @@ func (c *retryingJITClient) RemoveRunner(ctx context.Context, serverID int64) er
 	_, err := retryNetworkCall(ctx, networkRetry{lifecycle: ctx, retryDelay: c.retryDelay, wait: c.wait}, "remove JIT runner", func(callCtx context.Context) (struct{}, error) {
 		return struct{}{}, c.inner.RemoveRunner(callCtx, serverID)
 	})
+	if errors.Is(err, scaleset.RunnerNotFoundError) {
+		return nil
+	}
 	return err
 }
 

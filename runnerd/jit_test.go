@@ -54,7 +54,10 @@ func TestRetryingJITClientReconcilesAmbiguousCreationWithoutRepeatingIt(t *testi
 
 func TestRetryingJITClientRetriesIdempotentRemoval(t *testing.T) {
 	networkErr := &net.DNSError{Err: "network is unreachable", Name: "api.github.com", IsTemporary: true}
-	inner := &fakeJITClient{removeErrors: []error{networkErr}}
+	inner := &fakeJITClient{
+		removeErrors: []error{networkErr},
+		removeErr:    scaleset.RunnerNotFoundError,
+	}
 	waits := 0
 	client := newRetryingJITClient(inner, time.Second, func(context.Context, time.Duration) error {
 		waits++
