@@ -50,8 +50,8 @@ for setting in \
   'expected_slice_memory_high=51539607552' \
   'expected_slice_memory_max=68719476736' \
   'expected_slice_tasks_max=27000' \
-  'runner_memory=6g' \
-  'runner_memory_bytes=6442450944'; do
+  'runner_memory=10g' \
+  'runner_memory_bytes=10737418240'; do
   grep -qxF "$setting" "$acceptance_worker"
 done
 

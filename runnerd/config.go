@@ -30,7 +30,7 @@ func LoadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 		ImageTag:        getenv("AEONS_RUNNERD_IMAGE_TAG"),
 		MaxRunners:      12,
 		RunnerCPUs:      "2",
-		RunnerMemory:    "6g",
+		RunnerMemory:    "10g",
 		AppClientID:     getenv("AEONS_RUNNERD_APP_CLIENT_ID"),
 	}
 	if config.ImageTag == "" {
