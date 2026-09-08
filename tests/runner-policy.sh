@@ -206,13 +206,16 @@ if grep -qF 'podman image exists' "$system_root/usr/libexec/aeons-runner-image-e
 fi
 grep -qE '^FROM ghcr.io/actions/actions-runner:[^ ]+@sha256:[0-9a-f]{64}$' \
   "$repo_root/runner-image/Containerfile"
-grep -qE '^[[:space:]]+libatomic1 \\$' "$repo_root/runner-image/Containerfile"
-grep -qE '^[[:space:]]+libsm6 \\$' "$repo_root/runner-image/Containerfile"
+for package in libatomic1 libsm6 lsof xz-utils; do
+  grep -qE "^[[:space:]]+$package \\\\$" "$repo_root/runner-image/Containerfile"
+done
 grep -qF 'COPY entrypoint.sh /opt/actions-runner/entrypoint.sh' "$repo_root/runner-image/Containerfile"
 grep -qF 'WorkSize:     "4g"' "$repo_root/runnerd/main.go"
 grep -qF -- '--tmpfs=/runner:rw,nosuid,nodev,size=4g,mode=0777' "$acceptance_worker"
 grep -qF 'test -e /usr/lib/x86_64-linux-gnu/libatomic.so.1' "$acceptance_worker"
 grep -qF 'test -e /usr/lib/x86_64-linux-gnu/libSM.so.6' "$acceptance_worker"
+grep -qF 'command -v lsof >/dev/null' "$acceptance_worker"
+grep -qF 'command -v xz >/dev/null' "$acceptance_worker"
 grep -qF 'ln -s "/opt/actions-runner/runtime/$directory"' \
   "$repo_root/runner-image/entrypoint.sh"
 if grep -qF 'runtime/. /runner/' "$repo_root/runner-image/entrypoint.sh"; then
