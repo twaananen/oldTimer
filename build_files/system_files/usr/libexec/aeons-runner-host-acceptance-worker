@@ -58,7 +58,7 @@ common_args=(
     --security-opt=no-new-privileges
     --network=pasta:--ipv4-only,--no-map-gw
     --read-only
-    --tmpfs=/runner:rw,nosuid,nodev,size=4g,mode=0777
+    --tmpfs=/runner:rw,nosuid,nodev,size=8g,mode=0777
     --tmpfs=/tmp:rw,nosuid,nodev,size=1g
     --stop-timeout=30
     --dns=1.1.1.1
@@ -138,6 +138,8 @@ private_probe_addresses=(
 )
 probe='set -euo pipefail
 test "$(id -u)" = 1001
+test -e /usr/lib/x86_64-linux-gnu/libatomic.so.1
+test -e /usr/lib/x86_64-linux-gnu/libSM.so.6
 grep -Eq "^CapEff:[[:space:]]+0+$" /proc/self/status
 grep -Eq "^NoNewPrivs:[[:space:]]+1$" /proc/self/status
 grep -qx 6442450944 /sys/fs/cgroup/memory.max

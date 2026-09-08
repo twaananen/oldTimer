@@ -6,8 +6,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git-lfs \
         libasound2t64 \
+        libatomic1 \
         libfontconfig1 \
         libgl1 \
+        libsm6 \
         libx11-6 \
         libxcursor1 \
         libxext6 \
