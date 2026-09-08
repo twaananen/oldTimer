@@ -33,7 +33,7 @@ func TestLoadConfigReadsOnlyGitHubAppCredential(t *testing.T) {
 		ImageTag:        "localhost/aeons-actions-runner:oldtimer",
 		MaxRunners:      12,
 		RunnerCPUs:      "2",
-		RunnerMemory:    "10g",
+		RunnerMemory:    "6g",
 		AppClientID:     "Iv23.client",
 		InstallationID:  12345,
 		PrivateKey:      "private-key\n",

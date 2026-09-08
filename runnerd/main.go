@@ -43,7 +43,7 @@ func run(ctx context.Context) error {
 		CPUs:         config.RunnerCPUs,
 		Memory:       config.RunnerMemory,
 		PIDsLimit:    2048,
-		WorkSize:     "8g",
+		WorkSize:     "4g",
 		TmpfsSize:    "1g",
 		Lifecycle:    ctx,
 		RunTimeout:   45 * time.Minute,

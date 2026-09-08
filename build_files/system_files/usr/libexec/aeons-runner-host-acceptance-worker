@@ -19,8 +19,8 @@ expected_slice_cpu_max="1200000 100000"
 expected_slice_memory_high=51539607552
 expected_slice_memory_max=68719476736
 expected_slice_tasks_max=27000
-runner_memory=10g
-runner_memory_bytes=10737418240
+runner_memory=6g
+runner_memory_bytes=6442450944
 worker_cgroup=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
 if [[ $worker_cgroup != "$expected_supervisor" ]]; then
     echo "worker is outside its stable supervisor cgroup: $worker_cgroup" >&2
@@ -58,7 +58,7 @@ common_args=(
     --security-opt=no-new-privileges
     --network=pasta:--ipv4-only,--no-map-gw
     --read-only
-    --tmpfs=/runner:rw,nosuid,nodev,size=8g,mode=0777
+    --tmpfs=/runner:rw,nosuid,nodev,size=4g,mode=0777
     --tmpfs=/tmp:rw,nosuid,nodev,size=1g
     --stop-timeout=30
     --dns=1.1.1.1
@@ -142,7 +142,7 @@ test -e /usr/lib/x86_64-linux-gnu/libatomic.so.1
 test -e /usr/lib/x86_64-linux-gnu/libSM.so.6
 grep -Eq "^CapEff:[[:space:]]+0+$" /proc/self/status
 grep -Eq "^NoNewPrivs:[[:space:]]+1$" /proc/self/status
-grep -qx 10737418240 /sys/fs/cgroup/memory.max
+grep -qx 6442450944 /sys/fs/cgroup/memory.max
 grep -qx 2048 /sys/fs/cgroup/pids.max
 grep -qx "200000 100000" /sys/fs/cgroup/cpu.max
 awk '\''$2 == "/" { split($4, options, ","); for (i in options) if (options[i] == "ro") found=1 } END { exit found ? 0 : 1 }'\'' /proc/mounts

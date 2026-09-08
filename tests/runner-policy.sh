@@ -50,8 +50,8 @@ for setting in \
   'expected_slice_memory_high=51539607552' \
   'expected_slice_memory_max=68719476736' \
   'expected_slice_tasks_max=27000' \
-  'runner_memory=10g' \
-  'runner_memory_bytes=10737418240'; do
+  'runner_memory=6g' \
+  'runner_memory_bytes=6442450944'; do
   grep -qxF "$setting" "$acceptance_worker"
 done
 
@@ -209,8 +209,8 @@ grep -qE '^FROM ghcr.io/actions/actions-runner:[^ ]+@sha256:[0-9a-f]{64}$' \
 grep -qE '^[[:space:]]+libatomic1 \\$' "$repo_root/runner-image/Containerfile"
 grep -qE '^[[:space:]]+libsm6 \\$' "$repo_root/runner-image/Containerfile"
 grep -qF 'COPY entrypoint.sh /opt/actions-runner/entrypoint.sh' "$repo_root/runner-image/Containerfile"
-grep -qF 'WorkSize:     "8g"' "$repo_root/runnerd/main.go"
-grep -qF -- '--tmpfs=/runner:rw,nosuid,nodev,size=8g,mode=0777' "$acceptance_worker"
+grep -qF 'WorkSize:     "4g"' "$repo_root/runnerd/main.go"
+grep -qF -- '--tmpfs=/runner:rw,nosuid,nodev,size=4g,mode=0777' "$acceptance_worker"
 grep -qF 'test -e /usr/lib/x86_64-linux-gnu/libatomic.so.1' "$acceptance_worker"
 grep -qF 'test -e /usr/lib/x86_64-linux-gnu/libSM.so.6' "$acceptance_worker"
 grep -qF 'ln -s "/opt/actions-runner/runtime/$directory"' \
