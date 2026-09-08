@@ -138,6 +138,8 @@ private_probe_addresses=(
 )
 probe='set -euo pipefail
 test "$(id -u)" = 1001
+test -e /usr/lib/x86_64-linux-gnu/libatomic.so.1
+test -e /usr/lib/x86_64-linux-gnu/libSM.so.6
 grep -Eq "^CapEff:[[:space:]]+0+$" /proc/self/status
 grep -Eq "^NoNewPrivs:[[:space:]]+1$" /proc/self/status
 grep -qx 6442450944 /sys/fs/cgroup/memory.max
