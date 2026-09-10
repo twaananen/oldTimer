@@ -2,7 +2,7 @@
 Description=Aeons CI private-network egress denial
 Requires=aeons-ci-host-setup.service
 After=aeons-ci-host-setup.service
-Before=aeons-runner-image.service aeons-runnerd.service
+Before=aeons-runnerd.service
 
 [Service]
 Type=oneshot
