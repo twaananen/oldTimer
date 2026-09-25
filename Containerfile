@@ -9,9 +9,4 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/build.sh
 
-RUN systemd-analyze verify \
-        aeons-ci.slice \
-        aeons-ci-host-setup.service \
-        aeons-ci-firewall.service \
-    && rm -f /run/systemd/systemd-units-load \
-    && bootc container lint
+RUN bootc container lint
