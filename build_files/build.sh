@@ -3,6 +3,12 @@ set -ouex pipefail
 
 # Copy system overlay files into the image
 cp -r /ctx/system_files/* /
+chmod 0440 /etc/sudoers.d/99-password-feedback
+visudo -c
+
+# Homebrew zsh is installed persistently outside the OS image.
+grep -qxF /home/linuxbrew/.linuxbrew/bin/zsh /etc/shells || \
+    printf '\n%s\n' /home/linuxbrew/.linuxbrew/bin/zsh >> /etc/shells
 
 # Install packages
 dnf5 install -y \
