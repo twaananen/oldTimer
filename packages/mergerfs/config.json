@@ -1,0 +1,8 @@
+{
+  "version": "2.42.0",
+  "source_sha256": "546d6eed694d48ef13e058a46c6fb3da34dc9dfc48ee51af6487f353787780bd",
+  "release_repository": "twaananen/oldTimer",
+  "builders": {
+    "45": "registry.fedoraproject.org/fedora@sha256:923371b3d6b39765b75b3ed44e061ef08278d78288b4852e5afc75c206d530fb"
+  }
+}

@@ -1,4 +1,6 @@
 cosign.key
+/build_files/mergerfs/
+__pycache__/
 _build_*
 output
 _build-*/**

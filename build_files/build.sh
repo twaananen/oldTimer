@@ -22,9 +22,9 @@ dnf5 install -y \
     podman-tui \
     code
 
-# Install mergerfs from GitHub release (derive Fedora version dynamically)
-FEDORA_VERSION=$(rpm -E %fedora)
-/ctx/github-release-install.sh trapexit/mergerfs "fc${FEDORA_VERSION}.x86_64"
+# The workflow resolves and verifies the RPM before building the image.
+(cd /ctx/mergerfs && sha256sum -c SHA256SUMS)
+dnf5 install -y fuse /ctx/mergerfs/package.rpm
 if ! rpm -q mergerfs || ! mergerfs --version; then
     echo "ERROR: mergerfs must be installed and runnable; refusing to build an image without the storage pool mount tool." >&2
     exit 1

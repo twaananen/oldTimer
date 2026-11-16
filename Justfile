@@ -88,6 +88,9 @@ sudoif command *args:
 # Build the image using the specified parameters
 build $target_image=image_name $tag=default_tag:
     #!/usr/bin/env bash
+    set -euo pipefail
+
+    python3 packages/mergerfs/prepare.py
 
     BUILD_ARGS=()
     if [[ -z "$(git status -s)" ]]; then
@@ -96,6 +99,7 @@ build $target_image=image_name $tag=default_tag:
 
     podman build \
         "${BUILD_ARGS[@]}" \
+        --build-arg "BASE_IMAGE=$(cat build_files/mergerfs/base-image.txt)" \
         --pull=newer \
         --tag "${target_image}:${tag}" \
         .
