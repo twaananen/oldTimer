@@ -25,6 +25,10 @@ dnf5 install -y \
 # Install mergerfs from GitHub release (derive Fedora version dynamically)
 FEDORA_VERSION=$(rpm -E %fedora)
 /ctx/github-release-install.sh trapexit/mergerfs "fc${FEDORA_VERSION}.x86_64"
+if ! rpm -q mergerfs || ! mergerfs --version; then
+    echo "ERROR: mergerfs must be installed and runnable; refusing to build an image without the storage pool mount tool." >&2
+    exit 1
+fi
 
 # Disable third-party repos in the final image
 dnf5 config-manager setopt docker-ce-stable.enabled=0

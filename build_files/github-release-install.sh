@@ -35,11 +35,16 @@ fi
 set -ouex pipefail
 
 API="https://api.github.com/repos/${ORG_PROJ}/releases/latest"
-RPM_URLS=$(curl --retry 3 --retry-delay 0 --retry-all-errors -sL ${API} \
+RPM_URLS=$(curl --retry 3 --retry-delay 0 --retry-all-errors -fsSL "${API}" \
   | jq \
     -r \
     --arg arch_filter "${ARCH_FILTER}" \
     '.assets | sort_by(.created_at) | reverse | .[] | select(.name|test($arch_filter)) | select (.name|test("rpm$")) | .browser_download_url')
+if [ -z "${RPM_URLS}" ]; then
+  echo "ERROR: No RPM matching '${ARCH_FILTER}' found in the latest release of ${ORG_PROJ} (${API})." >&2
+  exit 1
+fi
+
 for URL in ${RPM_URLS}; do
   # WARNING: in case of multiple matches, this only installs the first matched release
   echo "execute: dnf5 install -y \"${URL}\""
